@@ -63,18 +63,29 @@ export default defineBackground(() => {
 
       void analyze(start, send).catch((error: unknown) => {
         const response = toErrorResponse(error);
-        send({ kind: 'error', message: response.error, code: response.code });
+        send({
+          kind: 'error',
+          message: response.error,
+          code: response.code,
+          ...(response.resetAt ? { resetAt: response.resetAt } : {}),
+        });
       });
     });
   });
 });
 
-function toErrorResponse(error: unknown): { ok: false; error: string; code?: ErrorCode } {
+function toErrorResponse(error: unknown): {
+  ok: false;
+  error: string;
+  code?: ErrorCode;
+  resetAt?: number;
+} {
   if (error instanceof GitHubApiError) {
     return {
       ok: false,
       error: error.message,
       code: error.code === 'server' ? 'network' : error.code,
+      ...(error.resetAt ? { resetAt: error.resetAt } : {}),
     };
   }
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -91,8 +102,44 @@ async function handle(request: Request): Promise<unknown> {
   }
 }
 
+type Resolved = Awaited<ReturnType<typeof resolveUncached>>;
+
+/**
+ * Short-lived cache of resolved repositories.
+ *
+ * Each resolve costs three API requests, and the anonymous budget is only 60 an hour.
+ * Without this, simply opening a repository page spent three, clicking "Count lines"
+ * spent three more, and every re-mount of the panel spent three again — a handful of
+ * repositories was enough to exhaust the hour.
+ */
+const RESOLVE_TTL_MS = 10 * 60 * 1000;
+const resolveCache = new Map<string, { at: number; value: Promise<Resolved> }>();
+
+function resolve(repo: RepoRef): Promise<Resolved> {
+  const key = `${repo.owner}/${repo.repo}`;
+  const cached = resolveCache.get(key);
+
+  if (cached && Date.now() - cached.at < RESOLVE_TTL_MS) return cached.value;
+
+  // Stored as a promise so concurrent callers share one set of requests rather than
+  // racing and each spending their own three.
+  const value = resolveUncached(repo);
+  resolveCache.set(key, { at: Date.now(), value });
+
+  // A failed lookup must not be cached, or a transient error sticks for ten minutes.
+  value.catch(() => resolveCache.delete(key));
+
+  // Bound the map; this is a service worker that can live for a long time.
+  if (resolveCache.size > 50) {
+    const oldest = [...resolveCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) resolveCache.delete(oldest[0]);
+  }
+
+  return value;
+}
+
 /** Resolves a repository to a commit and the list of files worth counting. */
-async function resolve(repo: RepoRef) {
+async function resolveUncached(repo: RepoRef) {
   const [token, settings] = await Promise.all([getToken(), getSettings()]);
 
   const info = await fetchRepoInfo(repo, token);
@@ -146,6 +193,9 @@ async function preview(request: PreviewRequest): Promise<RepoPreview> {
  */
 async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void): Promise<void> {
   const { repo } = start;
+
+  // "Refresh" must see new commits, so it bypasses the resolve cache too.
+  if (start.force) resolveCache.delete(`${repo.owner}/${repo.repo}`);
 
   emit({ kind: 'progress', phase: 'resolving', done: 0, total: 0 });
   const resolved = await resolve(repo);

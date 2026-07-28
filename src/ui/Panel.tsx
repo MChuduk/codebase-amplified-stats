@@ -69,7 +69,13 @@ function Body({
       return <p className="gas-muted text-xs">Reading repository tree…</p>;
 
     case "error":
-      return <ErrorNotice message={state.message} code={state.code} />;
+      return (
+        <ErrorNotice
+          message={state.message}
+          code={state.code}
+          resetAt={state.resetAt}
+        />
+      );
 
     case "preview":
       return <PreviewView preview={state.preview} onRun={() => onRun(false)} />;
@@ -88,13 +94,40 @@ function Body({
   }
 }
 
-function ErrorNotice({ message, code }: { message: string; code?: string }) {
+function ErrorNotice({
+  message,
+  code,
+  resetAt,
+}: {
+  message: string;
+  code?: string;
+  resetAt?: number;
+}) {
+  if (code === "rate-limit") {
+    // Knowing when the budget comes back is the difference between "it is broken" and
+    // "wait eight minutes".
+    const minutes = resetAt
+      ? Math.max(1, Math.ceil((resetAt * 1000 - Date.now()) / 60000))
+      : null;
+
+    return (
+      <div className="space-y-1 text-xs text-[var(--fgColor-danger,#d1242f)]">
+        <p>
+          GitHub&apos;s anonymous API limit is spent
+          {minutes !== null && `; it resets in ${minutes} min`}.
+        </p>
+        <p className="gas-muted">
+          The limit is 60 requests an hour per IP address, and each repository costs three.
+          Signing in from the extension options raises it to 5,000.
+        </p>
+      </div>
+    );
+  }
+
   const text =
-    code === "rate-limit"
-      ? "GitHub API rate limit reached. Sign in from the extension options to raise it to 5,000 requests an hour."
-      : code === "not-found"
-        ? "This repository is private or unavailable. Only public repositories are supported."
-        : message;
+    code === "not-found"
+      ? "This repository is private or unavailable. Only public repositories are supported."
+      : message;
 
   return <p className="text-xs text-[var(--fgColor-danger,#d1242f)]">{text}</p>;
 }
@@ -128,10 +161,10 @@ function PreviewView({
         Count lines
       </button>
 
-      {preview.rateLimit && preview.rateLimit.remaining < 10 && (
+      {preview.rateLimit && preview.rateLimit.remaining < 20 && (
         <p className="gas-muted text-xs">
-          {preview.rateLimit.remaining} of {preview.rateLimit.limit} API
-          requests left this hour.
+          {preview.rateLimit.remaining} of {preview.rateLimit.limit} API requests left
+          this hour ({Math.floor(preview.rateLimit.remaining / 3)} more repositories).
         </p>
       )}
     </div>

@@ -46,7 +46,8 @@ export type ErrorCode = 'rate-limit' | 'not-found' | 'network' | 'auth';
 
 export type Response<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; code?: ErrorCode };
+  /** `resetAt` is epoch seconds, present for rate-limit errors. */
+  | { ok: false; error: string; code?: ErrorCode; resetAt?: number };
 
 /** Sends a typed request to the background worker. */
 export async function sendRequest<T>(request: Request): Promise<Response<T>> {
@@ -77,4 +78,4 @@ export type AnalyzePhase = 'resolving' | 'listing' | 'counting' | 'done';
 export type AnalyzeEvent =
   | { kind: 'progress'; phase: AnalyzePhase; done: number; total: number }
   | { kind: 'result'; stats: RepoStats; failures: number }
-  | { kind: 'error'; message: string; code?: ErrorCode };
+  | { kind: 'error'; message: string; code?: ErrorCode; resetAt?: number };

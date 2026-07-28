@@ -15,7 +15,7 @@ export type AnalysisState =
   | { status: 'preview'; preview: RepoPreview }
   | { status: 'running'; phase: AnalyzePhase; done: number; total: number }
   | { status: 'stats'; stats: RepoStats; failures: number }
-  | { status: 'error'; message: string; code?: ErrorCode };
+  | { status: 'error'; message: string; code?: ErrorCode; resetAt?: number };
 
 /**
  * Drives one repository's analysis: previews on mount, then runs the count on demand
@@ -32,7 +32,12 @@ export function useAnalysis(repo: RepoRef) {
     void sendRequest<RepoPreview>({ kind: 'preview', repo }).then((response) => {
       if (cancelled) return;
       if (!response.ok) {
-        setState({ status: 'error', message: response.error, code: response.code });
+        setState({
+          status: 'error',
+          message: response.error,
+          code: response.code,
+          resetAt: response.resetAt,
+        });
         return;
       }
       // A cached result for the current commit means there is nothing to ask about.
@@ -83,7 +88,12 @@ export function useAnalysis(repo: RepoRef) {
             portRef.current = null;
             break;
           case 'error':
-            setState({ status: 'error', message: event.message, code: event.code });
+            setState({
+              status: 'error',
+              message: event.message,
+              code: event.code,
+              resetAt: event.resetAt,
+            });
             port.disconnect();
             portRef.current = null;
             break;
