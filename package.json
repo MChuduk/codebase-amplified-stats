@@ -1,0 +1,38 @@
+{
+  "name": "github-amplified-stats",
+  "version": "0.1.0",
+  "description": "Chrome extension showing real lines-of-code statistics per language for GitHub repositories",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare",
+    "gen:languages": "tsx scripts/gen-languages.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "idb": "^8.0.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@wxt-dev/module-react": "^1.2.2",
+    "playwright": "^1.62.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10",
+    "wxt": "^0.21.1",
+    "yaml": "^2.7.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

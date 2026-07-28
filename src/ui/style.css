@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+
+/*
+ * The panel lives inside a shadow root, so GitHub's stylesheet does not reach it and
+ * Tailwind's preflight does not leak out. We do want GitHub's theme colours though —
+ * its CSS custom properties are defined on :root and inherit through the shadow
+ * boundary, which keeps the panel looking native in both light and dark mode.
+ */
+:host {
+  display: block;
+}
+
+.gas-panel {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding-top: 16px;
+  border-top: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0));
+  margin-top: 16px;
+}
+
+.gas-muted {
+  color: var(--fgColor-muted, var(--color-fg-muted, #59636e));
+}
+
+.gas-accent {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+}

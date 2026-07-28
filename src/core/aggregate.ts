@@ -1,0 +1,204 @@
+import { LANGUAGES } from './languages.generated';
+import type {
+  CountableFile,
+  FileCategory,
+  LanguageStats,
+  LineStats,
+  RepoStats,
+  SkipReason,
+} from './types';
+
+/** The line counts for one counted file, as produced by the workers. */
+export interface FileResult {
+  path: string;
+  sha: string;
+  size: number;
+  language: string;
+  category: FileCategory;
+  stats: LineStats;
+}
+
+function emptyStats(): LineStats & { files: number; bytes: number } {
+  return { total: 0, blank: 0, comment: 0, code: 0, files: 0, bytes: 0 };
+}
+
+/**
+ * Adds `from` into `into`. A null comment count is contagious: once any file in a
+ * language has no comment data, the language total cannot claim one.
+ */
+function accumulate(
+  into: LineStats & { files: number; bytes: number },
+  from: LineStats,
+  bytes: number,
+): void {
+  into.total += from.total;
+  into.blank += from.blank;
+  into.code += from.code;
+  into.files += 1;
+  into.bytes += bytes;
+  if (into.comment === null || from.comment === null) into.comment = null;
+  else into.comment += from.comment;
+}
+
+/**
+ * Rolls per-file results up into per-language totals.
+ *
+ * Languages Linguist folds into a parent (TSX into TypeScript, for instance) are merged,
+ * matching how GitHub's own language bar groups them.
+ */
+export function aggregate(
+  results: FileResult[],
+  options: { groupLanguages?: boolean } = {},
+): LanguageStats[] {
+  const groupLanguages = options.groupLanguages ?? true;
+  const byLanguage = new Map<
+    string,
+    { totals: ReturnType<typeof emptyStats>; byCategory: Map<FileCategory, ReturnType<typeof emptyStats>> }
+  >();
+
+  for (const result of results) {
+    const meta = LANGUAGES[result.language];
+    const name = (groupLanguages && meta?.group) || result.language;
+
+    let entry = byLanguage.get(name);
+    if (!entry) {
+      entry = { totals: emptyStats(), byCategory: new Map() };
+      byLanguage.set(name, entry);
+    }
+
+    accumulate(entry.totals, result.stats, result.size);
+
+    let categoryStats = entry.byCategory.get(result.category);
+    if (!categoryStats) {
+      categoryStats = emptyStats();
+      entry.byCategory.set(result.category, categoryStats);
+    }
+    accumulate(categoryStats, result.stats, result.size);
+  }
+
+  const languages: LanguageStats[] = [];
+  for (const [language, entry] of byLanguage) {
+    languages.push({
+      language,
+      color: LANGUAGES[language]?.color ?? null,
+      ...entry.totals,
+      byCategory: Object.fromEntries(entry.byCategory) as LanguageStats['byCategory'],
+    });
+  }
+
+  // Most code first — the ordering the panel renders in.
+  languages.sort((a, b) => b.code - a.code || a.language.localeCompare(b.language));
+  return languages;
+}
+
+/**
+ * Sums language rows into repository totals.
+ *
+ * Unlike the per-language rollup, a language with no comment data does not blank out the
+ * repository comment total — it is simply left out of that one figure. Otherwise a single
+ * file in an exotic language would erase an otherwise complete number.
+ */
+export function totalsOf(languages: LanguageStats[]): LineStats & { files: number; bytes: number } {
+  const totals = emptyStats();
+  let commentKnown = false;
+
+  for (const language of languages) {
+    totals.total += language.total;
+    totals.blank += language.blank;
+    totals.code += language.code;
+    totals.files += language.files;
+    totals.bytes += language.bytes;
+    if (language.comment !== null) {
+      totals.comment = (totals.comment ?? 0) + language.comment;
+      commentKnown = true;
+    }
+  }
+
+  if (!commentKnown) totals.comment = null;
+  return totals;
+}
+
+export function buildRepoStats(params: {
+  owner: string;
+  repo: string;
+  commitSha: string;
+  branch: string;
+  results: FileResult[];
+  skippedByReason: Record<SkipReason, number>;
+  truncated: boolean;
+  partial: boolean;
+}): RepoStats {
+  const languages = aggregate(params.results);
+  return {
+    owner: params.owner,
+    repo: params.repo,
+    commitSha: params.commitSha,
+    branch: params.branch,
+    languages,
+    totals: totalsOf(languages),
+    skippedByReason: params.skippedByReason,
+    truncated: params.truncated,
+    partial: params.partial,
+    computedAt: Date.now(),
+  };
+}
+
+/**
+ * Recomputes totals for a subset of categories, so toggling "count tests" in the UI
+ * needs no re-download.
+ */
+export function filterByCategory(
+  languages: LanguageStats[],
+  categories: FileCategory[],
+): LanguageStats[] {
+  const wanted = new Set(categories);
+  const filtered: LanguageStats[] = [];
+
+  for (const language of languages) {
+    const totals = emptyStats();
+    const kept: LanguageStats['byCategory'] = {};
+
+    for (const [category, stats] of Object.entries(language.byCategory)) {
+      if (!wanted.has(category as FileCategory)) continue;
+      kept[category as FileCategory] = stats;
+      totals.total += stats.total;
+      totals.blank += stats.blank;
+      totals.code += stats.code;
+      totals.files += stats.files;
+      totals.bytes += stats.bytes;
+      if (totals.comment === null || stats.comment === null) totals.comment = null;
+      else totals.comment += stats.comment;
+    }
+
+    if (totals.files > 0) {
+      filtered.push({ language: language.language, color: language.color, ...totals, byCategory: kept });
+    }
+  }
+
+  filtered.sort((a, b) => b.code - a.code || a.language.localeCompare(b.language));
+  return filtered;
+}
+
+/** Percentage share of code lines per language, for the stacked bar. */
+export function sharesOf(languages: LanguageStats[]): Map<string, number> {
+  const total = languages.reduce((sum, language) => sum + language.code, 0);
+  const shares = new Map<string, number>();
+  if (total === 0) return shares;
+  for (const language of languages) {
+    shares.set(language.language, (language.code / total) * 100);
+  }
+  return shares;
+}
+
+/**
+ * A stable colour for languages Linguist gives none, derived from the name so the same
+ * language always looks the same.
+ */
+export function colorFor(language: string, color: string | null): string {
+  if (color) return color;
+  let hash = 0;
+  for (let i = 0; i < language.length; i++) {
+    hash = (hash * 31 + language.charCodeAt(i)) | 0;
+  }
+  return `hsl(${Math.abs(hash) % 360} 45% 55%)`;
+}
