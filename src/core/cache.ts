@@ -27,7 +27,15 @@ export interface BlobStatsRecord {
   /** Language at count time; a re-detection may disagree, so it is stored, not assumed. */
   language: string;
   lastUsed: number;
+  /**
+   * Set when the blob turned out to be binary despite its extension. Without this the
+   * file is re-downloaded on every single run only to be thrown away again.
+   */
+  binary?: true;
 }
+
+/** Placeholder stats for a binary blob, which contributes nothing to any total. */
+const NO_STATS: LineStats = { total: 0, blank: 0, comment: 0, code: 0 };
 
 interface CacheSchema extends DBSchema {
   blobStats: {
@@ -66,17 +74,40 @@ export async function getBlobStats(
 ): Promise<Map<string, BlobStatsRecord>> {
   if (shas.length === 0) return new Map();
 
+  const wanted = [...new Set(shas)].sort();
   const database = await db();
   const transaction = database.transaction('blobStats', 'readonly');
   const store = transaction.objectStore('blobStats');
 
   const found = new Map<string, BlobStatsRecord>();
-  await Promise.all(
-    shas.map(async (sha) => {
-      const record = await store.get(sha);
-      if (record) found.set(sha, record);
-    }),
-  );
+
+  // One directed walk instead of a `get` per SHA. Both are correct, but on a repository
+  // with ten thousand files the walk is a single traversal rather than ten thousand
+  // round trips into IndexedDB. Blob SHAs are lowercase hex, so JavaScript's string
+  // ordering matches IndexedDB's key ordering and the two cursors advance in step.
+  let index = 0;
+  let cursor = await store.openCursor(IDBKeyRange.lowerBound(wanted[0]!));
+
+  while (cursor && index < wanted.length) {
+    const key = cursor.key;
+    const target = wanted[index]!;
+
+    if (key === target) {
+      found.set(key, cursor.value);
+      index += 1;
+      cursor = index < wanted.length ? await cursor.continue(wanted[index]!) : null;
+    } else if (key < target) {
+      cursor = await cursor.continue(target);
+    } else {
+      // The store jumped past what we asked for: those SHAs are simply not cached.
+      while (index < wanted.length && wanted[index]! < key) index += 1;
+      if (index === wanted.length) break;
+      // Landing exactly on the cursor is handled by re-entering the loop, since
+      // `continue` may only be given a key strictly ahead of the current position.
+      if (wanted[index] !== key) cursor = await cursor.continue(wanted[index]!);
+    }
+  }
+
   await transaction.done;
 
   return found;
@@ -104,8 +135,8 @@ export async function putBlobStats(results: FileResult[]): Promise<void> {
   await transaction.done;
 }
 
-/** Refreshes `lastUsed` so entries in active use survive eviction. */
-export async function touchBlobStats(shas: string[]): Promise<void> {
+/** Records blobs that turned out to be binary, so they are not downloaded again. */
+export async function putBinaryBlobs(shas: string[]): Promise<void> {
   if (shas.length === 0) return;
 
   const database = await db();
@@ -114,11 +145,32 @@ export async function touchBlobStats(shas: string[]): Promise<void> {
   const now = Date.now();
 
   await Promise.all(
-    shas.map(async (sha) => {
-      const record = await store.get(sha);
-      if (record) await store.put({ ...record, lastUsed: now });
-    }),
+    shas.map((sha) =>
+      store.put({ sha, stats: NO_STATS, language: '', lastUsed: now, binary: true }),
+    ),
   );
+  await transaction.done;
+}
+
+/** Entries are only re-stamped once a day; finer granularity buys nothing but writes. */
+const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Refreshes `lastUsed` so entries in active use survive eviction.
+ *
+ * Takes the records the caller already read rather than SHAs, which halves the work, and
+ * skips anything stamped recently — on a warm repository that is usually no writes at all.
+ */
+export async function touchBlobStats(records: BlobStatsRecord[]): Promise<void> {
+  const now = Date.now();
+  const stale = records.filter((record) => now - record.lastUsed > TOUCH_INTERVAL_MS);
+  if (stale.length === 0) return;
+
+  const database = await db();
+  const transaction = database.transaction('blobStats', 'readwrite');
+  const store = transaction.objectStore('blobStats');
+
+  await Promise.all(stale.map((record) => store.put({ ...record, lastUsed: now })));
   await transaction.done;
 }
 

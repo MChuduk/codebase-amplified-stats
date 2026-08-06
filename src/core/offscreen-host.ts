@@ -53,25 +53,52 @@ export interface CountJobOptions {
   commitSha: string;
   files: CountableFile[];
   concurrency: number;
+  /** Pull the whole repository as one archive instead of a request per file. */
+  tarball: boolean;
   onProgress?: (done: number, total: number) => void;
+  /** Counted files, in batches, as the job produces them. */
+  onResults?: (results: FileResult[]) => void;
 }
 
 export interface CountJobResult {
-  results: FileResult[];
   failures: FetchFailure[];
+  /** Blob SHAs that turned out to be binary. */
+  binaries: string[];
+}
+
+export class CountJobError extends Error {
+  constructor(
+    message: string,
+    /** The archive path broke; the per-file path is untried and worth a go. */
+    readonly tarballFailed: boolean,
+  ) {
+    super(message);
+    this.name = 'CountJobError';
+  }
 }
 
 /**
- * Runs a counting job in the offscreen document, forwarding progress as it arrives.
- * The document is torn down when the job ends, however it ends.
+ * Runs a counting job in the offscreen document, forwarding progress and results as they
+ * arrive. The document is torn down when the job ends, however it ends.
  */
 export async function runCountJob(options: CountJobOptions): Promise<CountJobResult> {
   const jobId = crypto.randomUUID();
 
-  const onProgressMessage = (message: unknown) => {
+  const onProgressMessage = (
+    message: unknown,
+    _sender: unknown,
+    sendResponse: (response: unknown) => void,
+  ) => {
     const progress = message as OffscreenProgress;
-    if (progress?.target !== 'background' || progress.jobId !== jobId) return;
+    if (progress?.target !== 'background' || progress.jobId !== jobId) return false;
+
     options.onProgress?.(progress.done, progress.total);
+    if (progress.results.length > 0) options.onResults?.(progress.results);
+
+    // Acknowledged so the offscreen document knows the batch landed and can send the
+    // next one; without this its sends would race and results could arrive out of order.
+    sendResponse({ ok: true });
+    return false;
   };
 
   browser.runtime.onMessage.addListener(onProgressMessage);
@@ -87,14 +114,17 @@ export async function runCountJob(options: CountJobOptions): Promise<CountJobRes
       commitSha: options.commitSha,
       files: options.files,
       concurrency: options.concurrency,
+      tarball: options.tarball,
     };
 
     const response = (await browser.runtime.sendMessage(request)) as OffscreenResponse;
 
-    if (!response) throw new Error('Offscreen document gave no response');
-    if (response.kind === 'failed') throw new Error(response.message);
+    if (!response) throw new CountJobError('Offscreen document gave no response', options.tarball);
+    if (response.kind === 'failed') {
+      throw new CountJobError(response.message, response.tarballFailed ?? false);
+    }
 
-    return { results: response.results, failures: response.failures };
+    return { failures: response.failures, binaries: response.binaries };
   } finally {
     browser.runtime.onMessage.removeListener(onProgressMessage);
     await closeOffscreen();

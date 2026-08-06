@@ -77,5 +77,7 @@ export type AnalyzePhase = 'resolving' | 'listing' | 'counting' | 'done';
 
 export type AnalyzeEvent =
   | { kind: 'progress'; phase: AnalyzePhase; done: number; total: number }
+  /** Totals so far, so the panel fills in while the run is still going. */
+  | { kind: 'partial'; stats: RepoStats; done: number; total: number }
   | { kind: 'result'; stats: RepoStats; failures: number }
   | { kind: 'error'; message: string; code?: ErrorCode; resetAt?: number };

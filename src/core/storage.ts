@@ -14,6 +14,25 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const SETTINGS_KEY = 'settings';
 const TOKEN_KEY = 'githubToken';
+const CLEANUP_KEY = 'lastCacheCleanup';
+
+/** How often the cache sweep may run. It is a full index scan, not a per-run chore. */
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True at most once a day, and stamps the clock as a side effect.
+ *
+ * Kept here rather than in the cache so the cache stays free of extension storage, and
+ * survives service-worker restarts, which an in-memory flag would not.
+ */
+export async function claimCacheCleanup(): Promise<boolean> {
+  const stored = await browser.storage.local.get(CLEANUP_KEY);
+  const last = (stored[CLEANUP_KEY] as number | undefined) ?? 0;
+  if (Date.now() - last < CLEANUP_INTERVAL_MS) return false;
+
+  await browser.storage.local.set({ [CLEANUP_KEY]: Date.now() });
+  return true;
+}
 
 export async function getSettings(): Promise<Settings> {
   const stored = await browser.storage.local.get(SETTINGS_KEY);

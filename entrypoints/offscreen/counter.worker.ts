@@ -1,17 +1,18 @@
 /// <reference lib="webworker" />
-import { countFiles } from '../../src/core/fetch-count';
+import { countBytes, countFiles } from '../../src/core/fetch-count';
 import type { FileResult } from '../../src/core/aggregate';
 import type { FetchFailure } from '../../src/core/fetch-count';
 import type { CountableFile, RepoRef } from '../../src/core/types';
 
 /**
- * Downloads and counts a share of the repository's files.
+ * Counts files, either fetching them itself or taking bytes it is handed.
  *
- * The worker fetches on its own rather than receiving file contents from the host — the
- * text never crosses a thread boundary, only the small result objects do.
+ * On the per-file path the worker fetches on its own so the text never crosses a thread
+ * boundary — only the small result objects do. On the archive path the host has already
+ * unpacked the bytes, so they arrive as a transferable instead.
  */
 
-export interface WorkerJob {
+export interface FetchJob {
   kind: 'job';
   repo: RepoRef;
   commitSha: string;
@@ -19,40 +20,69 @@ export interface WorkerJob {
   concurrency: number;
 }
 
+/** One file already unpacked from the repository archive. */
+export interface BlobJob {
+  kind: 'blob';
+  id: number;
+  file: CountableFile;
+  bytes: Uint8Array;
+}
+
+export type WorkerJob = FetchJob | BlobJob;
+
 export type WorkerMessage =
-  | { kind: 'progress'; done: number }
-  | { kind: 'done'; results: FileResult[]; failures: FetchFailure[] }
+  | { kind: 'progress'; done: number; results: FileResult[] }
+  | { kind: 'done'; results: FileResult[]; failures: FetchFailure[]; binaries: string[] }
+  /** `result` is null for a binary file; `error` is set only when counting threw. */
+  | { kind: 'blob-done'; id: number; result: FileResult | null; error?: string }
   | { kind: 'error'; message: string };
 
 const post = (message: WorkerMessage) => self.postMessage(message);
 
 self.onmessage = (event: MessageEvent<WorkerJob>) => {
   const job = event.data;
-  if (job?.kind !== 'job') return;
 
-  void run(job);
+  if (job?.kind === 'job') void runFetchJob(job);
+  else if (job?.kind === 'blob') runBlobJob(job);
 };
 
-async function run(job: WorkerJob): Promise<void> {
+function runBlobJob(job: BlobJob): void {
   try {
-    // Progress is reported at most every 150 ms; a message per file would cost more
-    // than the counting does on small files.
-    let lastReport = 0;
+    post({ kind: 'blob-done', id: job.id, result: countBytes(job.file, job.bytes) });
+  } catch (error) {
+    post({
+      kind: 'blob-done',
+      id: job.id,
+      result: null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
-    const { results, failures } = await countFiles(job.files, {
+async function runFetchJob(job: FetchJob): Promise<void> {
+  try {
+    // Results ride along with progress, at most every 150 ms — a message per file would
+    // cost more than the counting does on small files.
+    let lastReport = 0;
+    let batch: FileResult[] = [];
+
+    const { failures, binaries } = await countFiles(job.files, {
       repo: job.repo,
       commitSha: job.commitSha,
       concurrency: job.concurrency,
+      onResult: (result) => batch.push(result),
       onProgress: (done) => {
-        const now = Date.now();
-        if (done === job.files.length || now - lastReport > 150) {
-          lastReport = now;
-          post({ kind: 'progress', done });
-        }
+        if (Date.now() - lastReport < 150) return;
+        lastReport = Date.now();
+        const results = batch;
+        batch = [];
+        post({ kind: 'progress', done, results });
       },
     });
 
-    post({ kind: 'done', results, failures });
+    // Whatever the timer never got to goes out with the final message, so no result
+    // depends on a flush having happened to fire.
+    post({ kind: 'done', results: batch, failures, binaries });
   } catch (error) {
     post({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
   }

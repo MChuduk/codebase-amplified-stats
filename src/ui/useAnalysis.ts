@@ -13,7 +13,14 @@ import type { RepoRef, RepoStats } from '../core/types';
 export type AnalysisState =
   | { status: 'loading' }
   | { status: 'preview'; preview: RepoPreview }
-  | { status: 'running'; phase: AnalyzePhase; done: number; total: number }
+  /** `partial` holds the totals so far once the first files have been counted. */
+  | {
+      status: 'running';
+      phase: AnalyzePhase;
+      done: number;
+      total: number;
+      partial?: RepoStats;
+    }
   | { status: 'stats'; stats: RepoStats; failures: number }
   | { status: 'error'; message: string; code?: ErrorCode; resetAt?: number };
 
@@ -75,11 +82,23 @@ export function useAnalysis(repo: RepoRef) {
         const event = message as AnalyzeEvent;
         switch (event.kind) {
           case 'progress':
-            setState({
+            // Totals already shown must survive a progress tick, or the panel flickers
+            // back to an empty bar between batches.
+            setState((current) => ({
               status: 'running',
               phase: event.phase,
               done: event.done,
               total: event.total,
+              partial: current.status === 'running' ? current.partial : undefined,
+            }));
+            break;
+          case 'partial':
+            setState({
+              status: 'running',
+              phase: 'counting',
+              done: event.done,
+              total: event.total,
+              partial: event.stats,
             });
             break;
           case 'result':

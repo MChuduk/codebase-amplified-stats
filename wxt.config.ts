@@ -14,6 +14,8 @@ export default defineConfig({
       'https://api.github.com/*',
       'https://github.com/*',
       'https://raw.githubusercontent.com/*',
+      // Repository archives: one request instead of thousands on a large repository.
+      'https://codeload.github.com/*',
     ],
   },
   vite: () => ({

@@ -80,17 +80,34 @@ function Body({
     case "preview":
       return <PreviewView preview={state.preview} onRun={() => onRun(false)} />;
 
+    // Totals are shown as soon as they exist and keep filling in, rather than holding a
+    // bare progress bar until the very last file lands. Both states render the same
+    // shape, and the key keeps the table mounted across the handover — otherwise the
+    // categories and sorting someone picked mid-run would reset the moment it finished.
     case "running":
-      return (
-        <RunningView
-          done={state.done}
-          total={state.total}
-          phase={state.phase}
-        />
-      );
+    case "stats": {
+      const running = state.status === "running";
+      const stats = running ? state.partial : state.stats;
 
-    case "stats":
-      return <StatsView stats={state.stats} failures={state.failures} />;
+      return (
+        <div className="space-y-3">
+          {running && (
+            <RunningView
+              done={state.done}
+              total={state.total}
+              phase={state.phase}
+            />
+          )}
+          {stats && (
+            <StatsView
+              key="stats"
+              stats={stats}
+              failures={running ? 0 : state.failures}
+            />
+          )}
+        </div>
+      );
+    }
   }
 }
 

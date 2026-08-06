@@ -1,7 +1,8 @@
 {
   "name": "github-amplified-stats",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chrome extension showing real lines-of-code statistics per language for GitHub repositories",
+  "author": "Mikhail Chuduk",
   "private": true,
   "type": "module",
   "scripts": {
@@ -26,6 +27,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@wxt-dev/module-react": "^1.2.2",
+    "fake-indexeddb": "^6.2.5",
     "playwright": "^1.62.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.19.2",

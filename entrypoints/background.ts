@@ -16,15 +16,20 @@ import {
   getLastRateLimit,
 } from '../src/core/github-api';
 import { filterTree } from '../src/core/filter';
+import { shouldUseTarball } from '../src/core/tarball';
 import { disambiguate } from '../src/core/disambiguate';
 import { buildRepoStats, type FileResult } from '../src/core/aggregate';
-import { runCountJob } from '../src/core/offscreen-host';
+import { CountJobError, runCountJob } from '../src/core/offscreen-host';
 import * as cache from '../src/core/cache';
-import { getSettings, getToken } from '../src/core/storage';
+import { claimCacheCleanup, getSettings, getToken } from '../src/core/storage';
 import type { CountableFile, RepoRef } from '../src/core/types';
 
-/** Simultaneous downloads per worker. Four workers means up to 24 requests in flight. */
-const CONCURRENCY_PER_WORKER = 6;
+/**
+ * Simultaneous downloads per worker. Eight workers means up to 64 requests in flight —
+ * the raw CDN speaks HTTP/2, so these multiplex over one connection rather than opening
+ * 64 sockets, and `countFiles` backs the whole batch off if any of them is throttled.
+ */
+const CONCURRENCY_PER_WORKER = 8;
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
@@ -142,8 +147,16 @@ function resolve(repo: RepoRef): Promise<Resolved> {
 async function resolveUncached(repo: RepoRef) {
   const [token, settings] = await Promise.all([getToken(), getSettings()]);
 
-  const info = await fetchRepoInfo(repo, token);
-  const commitSha = await fetchCommitSha(repo, info.defaultBranch, token);
+  // `HEAD` resolves to the default branch's tip without first having to learn the branch
+  // name, so these two run together and the resolve costs two round trips instead of
+  // three. The ref spelling is not contractual, so a failure falls back to the explicit
+  // branch rather than failing the whole resolve.
+  const [info, headSha] = await Promise.all([
+    fetchRepoInfo(repo, token),
+    fetchCommitSha(repo, 'HEAD', token).catch(() => null),
+  ]);
+
+  const commitSha = headSha ?? (await fetchCommitSha(repo, info.defaultBranch, token));
   const tree = await fetchTree(repo, commitSha, token);
 
   const filtered = filterTree(tree.entries, settings);
@@ -152,6 +165,7 @@ async function resolveUncached(repo: RepoRef) {
   return {
     branch: info.defaultBranch,
     commitSha,
+    sizeKb: info.sizeKb,
     files,
     skippedByReason: filtered.skippedByReason,
     totalBytes: filtered.totalBytes,
@@ -210,15 +224,16 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
 
   emit({ kind: 'progress', phase: 'listing', done: 0, total: resolved.files.length });
 
-  // Reuse everything already counted, whatever commit or repository it came from.
+  // Reuse everything already counted, whatever commit or repository it came from —
+  // including blobs previously found to be binary, which are worth nothing to re-fetch.
   const known = await cache.getBlobStats(resolved.files.map((file) => file.sha));
   const cachedResults: FileResult[] = [];
   const toDownload: CountableFile[] = [];
 
   for (const file of resolved.files) {
     const record = known.get(file.sha);
-    if (record) cachedResults.push({ ...file, stats: record.stats });
-    else toDownload.push(file);
+    if (!record) toDownload.push(file);
+    else if (!record.binary) cachedResults.push({ ...file, stats: record.stats });
   }
 
   emit({
@@ -228,47 +243,91 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
     total: resolved.files.length,
   });
 
-  let downloaded: FileResult[] = [];
+  // Keyed by path so a retry after a failed archive cannot double-count a file that the
+  // archive already produced.
+  const downloaded = new Map<string, FileResult>();
   let failureCount = 0;
 
-  if (toDownload.length > 0) {
-    const job = await runCountJob({
-      repo,
+  const buildStats = (partial: boolean) =>
+    buildRepoStats({
+      owner: repo.owner,
+      repo: repo.repo,
       commitSha: resolved.commitSha,
-      files: toDownload,
-      concurrency: CONCURRENCY_PER_WORKER,
-      onProgress: (done) => {
-        emit({
-          kind: 'progress',
-          phase: 'counting',
-          done: cachedResults.length + done,
-          total: resolved.files.length,
-        });
-      },
+      branch: resolved.branch,
+      results: [...cachedResults, ...downloaded.values()],
+      skippedByReason: resolved.skippedByReason,
+      truncated: resolved.truncated,
+      partial,
     });
 
-    downloaded = job.results;
+  if (toDownload.length > 0) {
+    const counted = cachedResults.length;
+    // A retry after a failed archive starts its own count from zero, so the bar needs to
+    // remember how far the abandoned attempt got.
+    let processedBefore = 0;
+
+    const run = (files: CountableFile[], tarball: boolean) =>
+      runCountJob({
+        repo,
+        commitSha: resolved.commitSha,
+        files,
+        concurrency: CONCURRENCY_PER_WORKER,
+        tarball,
+        onProgress: (done) => {
+          emit({
+            kind: 'progress',
+            phase: 'counting',
+            done: counted + processedBefore + done,
+            total: resolved.files.length,
+          });
+        },
+        onResults: (batch) => {
+          for (const result of batch) downloaded.set(result.path, result);
+          // Persisted as it arrives, so a run cut short still leaves the work banked.
+          void cache.putBlobStats(batch);
+          emit({
+            kind: 'partial',
+            stats: buildStats(true),
+            done: counted + downloaded.size,
+            total: resolved.files.length,
+          });
+        },
+      });
+
+    const useTarball = shouldUseTarball({
+      toDownload: toDownload.length,
+      totalFiles: resolved.files.length,
+      sizeKb: resolved.sizeKb,
+    });
+    let job: Awaited<ReturnType<typeof run>>;
+
+    try {
+      job = await run(toDownload, useTarball);
+    } catch (error) {
+      // The archive is an optimisation, never a requirement. If it breaks — a repository
+      // too big to serve, an unexpected format, a browser without gzip streams — fall
+      // back to the path that has always worked, asking only for what is still missing.
+      if (!(error instanceof CountJobError) || !error.tarballFailed) throw error;
+
+      processedBefore = downloaded.size;
+      const missing = toDownload.filter((file) => !downloaded.has(file.path));
+      job = await run(missing, false);
+    }
+
     failureCount = job.failures.length;
-    await cache.putBlobStats(downloaded);
+    void cache.putBinaryBlobs(job.binaries);
   }
 
-  if (cachedResults.length > 0) {
-    void cache.touchBlobStats(cachedResults.map((result) => result.sha));
-  }
+  const cachedRecords = cachedResults
+    .map((result) => known.get(result.sha))
+    .filter((record): record is cache.BlobStatsRecord => record !== undefined);
+  void cache.touchBlobStats(cachedRecords);
 
-  const stats = buildRepoStats({
-    owner: repo.owner,
-    repo: repo.repo,
-    commitSha: resolved.commitSha,
-    branch: resolved.branch,
-    results: [...cachedResults, ...downloaded],
-    skippedByReason: resolved.skippedByReason,
-    truncated: resolved.truncated,
-    partial: failureCount > 0,
-  });
+  const stats = buildStats(failureCount > 0);
 
   await cache.putRepoRun(stats);
-  void cache.cleanup();
+  if (await claimCacheCleanup()) void cache.cleanup();
 
   emit({ kind: 'result', stats, failures: failureCount });
 }
+
