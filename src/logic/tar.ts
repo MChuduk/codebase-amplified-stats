@@ -1,7 +1,5 @@
-import type { RepoRef } from './types';
-
 /**
- * Streaming reader for GitHub's repository archives, the extension's only source of file
+ * Streaming reader for repository archives, the extension's only source of file
  * contents. Nothing is buffered beyond the file currently being handed out, which keeps a
  * multi-gigabyte repository a question of time rather than of memory.
  *
@@ -19,18 +17,6 @@ const SIZE_LENGTH = 12;
 const TYPEFLAG_OFFSET = 156;
 const PREFIX_OFFSET = 345;
 const PREFIX_LENGTH = 155;
-
-/**
- * The REST endpoint rather than `codeload.github.com` directly: it 302s to a signed
- * codeload URL, and that redirect is the only documented route to a private repository's
- * archive. `fetch` follows it and strips `Authorization` on the cross-origin hop, which is
- * what we want — the signed URL carries its own credential.
- */
-export function tarballUrl(repo: RepoRef, commitSha: string): string {
-  const owner = encodeURIComponent(repo.owner);
-  const name = encodeURIComponent(repo.repo);
-  return `https://api.github.com/repos/${owner}/${name}/tarball/${commitSha}`;
-}
 
 export interface TarEntry {
   /** Path within the repository, with the archive's top-level directory removed. */
@@ -61,8 +47,9 @@ export class TarError extends Error {
 /**
  * Reads a gzipped tar from a byte stream, handing each regular file to `onEntry`.
  *
- * GitHub wraps everything in a single `{repo}-{sha}/` directory; that leading component
- * is stripped so paths line up with the ones from the Git tree API.
+ * Hosts wrap everything in a single top-level directory — `{repo}-{sha}/` on GitHub,
+ * `{repo}-{sha}-{sha}/` on GitLab — so that leading component is stripped and paths line
+ * up with the ones from the tree listing.
  */
 export async function readTarball(
   stream: ReadableStream<Uint8Array>,
@@ -144,7 +131,7 @@ export async function readTarball(
   }
 }
 
-/** Drops the `{repo}-{sha}/` directory GitHub wraps every archive in. */
+/** Drops the single directory every host wraps its archive in, whatever it is named. */
 function stripTopLevel(name: string): string {
   const slash = name.indexOf('/');
   return slash === -1 ? name : name.slice(slash + 1);

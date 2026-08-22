@@ -1,11 +1,8 @@
-import type {
-  OffscreenProgress,
-  OffscreenRequest,
-  OffscreenResponse,
-} from './offscreen-protocol';
-import type { FileResult } from './aggregate';
-import type { CountFailure } from './counter';
-import type { CountableFile, RepoRef } from './types';
+import type { OffscreenProgress, OffscreenRequest, OffscreenResponse } from './offscreen-protocol';
+import type { RepoRef } from '../common';
+import type { FileResult } from '../logic/aggregate';
+import type { CountFailure } from '../logic/counter';
+import type { CountableFile } from '../logic/interfaces';
 
 /** WXT flattens `entrypoints/offscreen/index.html` to `offscreen.html` in the output. */
 const OFFSCREEN_PATH = 'offscreen.html';
@@ -107,6 +104,7 @@ export async function runCountJob(options: CountJobOptions): Promise<CountJobRes
       token: options.token,
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- `sendMessage` is typed `any`; without this `response` is untyped.
     const response = (await browser.runtime.sendMessage(request)) as OffscreenResponse;
 
     if (!response) throw new CountJobError('Offscreen document gave no response');

@@ -37,10 +37,10 @@ Extract a named constant, variable, or predicate function.
 ```ts
 // Bad — the comment carries meaning the code should
 // Calculate the number of active users
-const x = users.filter(u => u.active).length;
+const x = users.filter((u) => u.active).length;
 
 // Good
-const activeUserCount = users.filter(user => user.active).length;
+const activeUserCount = users.filter((user) => user.active).length;
 ```
 
 ```ts
@@ -61,7 +61,7 @@ if (user.role === "admin" || user.id === resource.ownerId) { … }
 if (canAccessResource(user, resource)) { … }
 ```
 
-If a block needs a comment to explain *what* it does, that is a signal to extract it into a
+If a block needs a comment to explain _what_ it does, that is a signal to extract it into a
 well-named function rather than to describe it in prose.
 
 ## When a comment IS warranted

@@ -1,5 +1,5 @@
-import { DEFAULT_FILTER_OPTIONS } from './types';
-import type { FilterOptions } from './types';
+import type { ProviderId } from '../common';
+import type { FilterOptions } from './interfaces';
 
 export interface Settings extends FilterOptions {
   /** Start counting automatically instead of waiting for a click. Off by default —
@@ -7,13 +7,19 @@ export interface Settings extends FilterOptions {
   autoAnalyze: boolean;
 }
 
+const DEFAULT_FILTER_OPTIONS: FilterOptions = {
+  maxFileSize: 1024 * 1024,
+  include: ['code', 'test', 'docs', 'data'],
+  excludePaths: [],
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   ...DEFAULT_FILTER_OPTIONS,
   autoAnalyze: false,
 };
 
 const SETTINGS_KEY = 'settings';
-const TOKEN_KEY = 'githubToken';
+const TOKENS_KEY = 'tokens';
 const CLEANUP_KEY = 'lastCacheCleanup';
 
 /** How often the cache sweep may run. It is a full index scan, not a per-run chore. */
@@ -45,15 +51,20 @@ export async function saveSettings(settings: Partial<Settings>): Promise<Setting
   return merged;
 }
 
-export async function getToken(): Promise<string | null> {
-  const stored = await browser.storage.local.get(TOKEN_KEY);
-  return (stored[TOKEN_KEY] as string | undefined) ?? null;
+type TokenStore = Partial<Record<ProviderId, string>>;
+
+async function readTokens(): Promise<TokenStore> {
+  const stored = await browser.storage.local.get(TOKENS_KEY);
+  return (stored[TOKENS_KEY] as TokenStore | undefined) ?? {};
 }
 
-export async function setToken(token: string | null): Promise<void> {
-  if (token) {
-    await browser.storage.local.set({ [TOKEN_KEY]: token });
-  } else {
-    await browser.storage.local.remove(TOKEN_KEY);
-  }
+export async function getToken(provider: ProviderId): Promise<string | null> {
+  return (await readTokens())[provider] ?? null;
+}
+
+export async function setToken(provider: ProviderId, token: string | null): Promise<void> {
+  const tokens = await readTokens();
+  if (token) tokens[provider] = token;
+  else delete tokens[provider];
+  await browser.storage.local.set({ [TOKENS_KEY]: tokens });
 }

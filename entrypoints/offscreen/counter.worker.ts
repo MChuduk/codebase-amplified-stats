@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
-import { countBytes } from '../../src/core/counter';
-import type { FileResult } from '../../src/core/aggregate';
-import type { CountableFile } from '../../src/core/types';
+import { countBytes } from '../../src/logic/counter';
+import type { FileResult } from '../../src/logic/aggregate';
+import type { CountableFile } from '../../src/logic/interfaces';
 
 /**
  * The host unpacks the archive and transfers each file's bytes here, so this side does no

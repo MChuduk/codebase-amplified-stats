@@ -2,7 +2,7 @@
 // Source: https://github.com/github-linguist/linguist (MIT)
 // Generated: 2026-07-28
 
-import type { LanguageMeta } from './types';
+import type { LanguageMeta } from './interfaces';
 
 /** Every language Linguist knows, with its type and brand colour. */
 export const LANGUAGES: Record<string, LanguageMeta> = {

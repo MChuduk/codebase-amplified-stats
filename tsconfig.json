@@ -5,11 +5,5 @@
     "noUncheckedIndexedAccess": true,
     "jsx": "react-jsx"
   },
-  "include": [
-    "entrypoints/**/*",
-    "src/**/*",
-    "scripts/**/*",
-    "wxt.config.ts",
-    ".wxt/**/*"
-  ]
+  "include": ["entrypoints/**/*", "src/**/*", "scripts/**/*", "wxt.config.ts", ".wxt/**/*"]
 }

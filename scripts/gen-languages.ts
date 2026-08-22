@@ -32,6 +32,7 @@ interface LinguistLanguage {
  * languages win, which is both wrong and confusing. Order matters only where two
  * preferred languages claim the same extension, which `EXTENSION_OVERRIDES` handles.
  */
+// prettier-ignore
 const PREFERRED_LANGUAGES = [
   'JavaScript', 'TypeScript', 'Python', 'Java', 'C', 'C++', 'C#', 'Go', 'Rust', 'Ruby',
   'PHP', 'Swift', 'Kotlin', 'Objective-C', 'Scala', 'Dart', 'Lua', 'Perl', 'R', 'Julia',
@@ -50,6 +51,7 @@ const PREFERENCE_RANK = new Map(PREFERRED_LANGUAGES.map((name, index) => [name, 
  * Conflicts between two equally mainstream languages, resolved by hand.
  * `disambiguate.ts` refines several of these using repository-level signals.
  */
+// prettier-ignore
 const EXTENSION_OVERRIDES: Record<string, string> = {
   // C family: `.h` and `.m` are refined per-repository by disambiguate.ts.
   '.h': 'C',
@@ -111,8 +113,7 @@ function pickLanguage(extension: string, candidates: Candidate[]): string {
   const sorted = [...candidates].sort((a, b) => {
     // A mainstream language beats a niche one regardless of whose primary extension it is.
     const preference =
-      (PREFERENCE_RANK.get(a.language) ?? Infinity) -
-      (PREFERENCE_RANK.get(b.language) ?? Infinity);
+      (PREFERENCE_RANK.get(a.language) ?? Infinity) - (PREFERENCE_RANK.get(b.language) ?? Infinity);
     if (preference !== 0) return preference;
 
     if (a.primary !== b.primary) return a.primary ? -1 : 1;
@@ -141,10 +142,8 @@ async function main() {
     fetchYaml<string[]>('documentation'),
   ]);
 
-  const languageMeta: Record<
-    string,
-    { type: string; color: string | null; group: string | null }
-  > = {};
+  const languageMeta: Record<string, { type: string; color: string | null; group: string | null }> =
+    {};
   const extensionCandidates = new Map<string, Candidate[]>();
   const filenames: Record<string, string> = {};
 
@@ -186,7 +185,7 @@ async function main() {
     try {
       new RegExp(pattern);
     } catch (error) {
-      throw new Error(`Pattern is not valid JavaScript regex: ${pattern}\n${error}`);
+      throw new Error(`Pattern is not valid JavaScript regex: ${pattern}`, { cause: error });
     }
   }
 

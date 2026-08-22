@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { RepoRef } from '../common';
 import type { FileResult } from './aggregate';
-import type { LineStats, RepoStats } from './types';
+import type { LineStats, RepoStats } from './interfaces';
 
 /**
  * Two-level cache.
@@ -14,7 +15,7 @@ import type { LineStats, RepoStats } from './types';
  */
 
 const DB_NAME = 'amplified-stats';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** Blob entries older than this are evicted; they cost nothing to recompute. */
 const BLOB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -55,10 +56,17 @@ let dbPromise: Promise<IDBPDatabase<CacheSchema>> | null = null;
 
 function db(): Promise<IDBPDatabase<CacheSchema>> {
   dbPromise ??= openDB<CacheSchema>(DB_NAME, DB_VERSION, {
-    upgrade(database) {
-      const blobs = database.createObjectStore('blobStats', { keyPath: 'sha' });
-      blobs.createIndex('lastUsed', 'lastUsed');
+    upgrade(database, from) {
+      if (from < 1) {
+        const blobs = database.createObjectStore('blobStats', { keyPath: 'sha' });
+        blobs.createIndex('lastUsed', 'lastUsed');
+      }
 
+      // v2 put the provider into the run key. `blobStats` is untouched by that: it is
+      // keyed by blob SHA, a hash of contents, which means the same across any host.
+      if (database.objectStoreNames.contains('repoRuns')) {
+        database.deleteObjectStore('repoRuns');
+      }
       const runs = database.createObjectStore('repoRuns', { keyPath: 'key' });
       runs.createIndex('lastUsed', 'lastUsed');
     },
@@ -66,12 +74,10 @@ function db(): Promise<IDBPDatabase<CacheSchema>> {
   return dbPromise;
 }
 
-const runKey = (owner: string, repo: string, commitSha: string) =>
-  `${owner}/${repo}@${commitSha}`;
+const runKey = (repo: RepoRef, commitSha: string) =>
+  `${repo.provider}:${repo.owner}/${repo.repo}@${commitSha}`;
 
-export async function getBlobStats(
-  shas: string[],
-): Promise<Map<string, BlobStatsRecord>> {
+export async function getBlobStats(shas: string[]): Promise<Map<string, BlobStatsRecord>> {
   if (shas.length === 0) return new Map();
 
   const wanted = [...new Set(shas)].sort();
@@ -95,7 +101,7 @@ export async function getBlobStats(
     if (key === target) {
       found.set(key, cursor.value);
       index += 1;
-      cursor = index < wanted.length ? await cursor.continue(wanted[index]!) : null;
+      cursor = index < wanted.length ? await cursor.continue(wanted[index]) : null;
     } else if (key < target) {
       cursor = await cursor.continue(target);
     } else {
@@ -104,7 +110,7 @@ export async function getBlobStats(
       if (index === wanted.length) break;
       // Landing exactly on the cursor is handled by re-entering the loop, since
       // `continue` may only be given a key strictly ahead of the current position.
-      if (wanted[index] !== key) cursor = await cursor.continue(wanted[index]!);
+      if (wanted[index] !== key) cursor = await cursor.continue(wanted[index]);
     }
   }
 
@@ -172,13 +178,9 @@ export async function touchBlobStats(records: BlobStatsRecord[]): Promise<void> 
   await transaction.done;
 }
 
-export async function getRepoRun(
-  owner: string,
-  repo: string,
-  commitSha: string,
-): Promise<RepoStats | null> {
+export async function getRepoRun(repo: RepoRef, commitSha: string): Promise<RepoStats | null> {
   const database = await db();
-  const record = await database.get('repoRuns', runKey(owner, repo, commitSha));
+  const record = await database.get('repoRuns', runKey(repo, commitSha));
   if (!record) return null;
 
   // Keep it warm without blocking the read.
@@ -194,7 +196,7 @@ export async function putRepoRun(stats: RepoStats): Promise<void> {
   const database = await db();
   await database.put('repoRuns', {
     ...stats,
-    key: runKey(stats.owner, stats.repo, stats.commitSha),
+    key: runKey(stats, stats.commitSha),
     lastUsed: Date.now(),
   });
 }
@@ -207,10 +209,8 @@ export async function cleanup(): Promise<void> {
   const transaction = database.transaction('blobStats', 'readwrite');
   const index = transaction.store.index('lastUsed');
 
-  let removed = 0;
   for await (const cursor of index.iterate(IDBKeyRange.upperBound(cutoff))) {
     await cursor.delete();
-    removed += 1;
   }
 
   const remaining = await transaction.store.count();
@@ -220,7 +220,6 @@ export async function cleanup(): Promise<void> {
       if (surplus <= 0) break;
       await cursor.delete();
       surplus -= 1;
-      removed += 1;
     }
   }
 

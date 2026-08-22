@@ -1,41 +1,20 @@
-import type { RepoRef, TreeEntry } from './types';
+import { ProviderError } from '../../common';
+import type {
+  ArchiveRequest,
+  RateLimit,
+  RepoInfo,
+  RepoRef,
+  TreeEntry,
+  TreeResult,
+} from '../../common';
 
 const API_BASE = 'https://api.github.com';
 
-export type GitHubErrorCode =
-  | 'rate-limit'
-  | 'not-found'
-  | 'auth'
-  /** The token is valid but not authorised for an SSO-protected organisation. */
-  | 'sso'
-  | 'network'
-  | 'server';
-
-export class GitHubApiError extends Error {
-  constructor(
-    message: string,
-    readonly code: GitHubErrorCode,
-    readonly status?: number,
-    /** Epoch seconds when the rate limit resets, for `rate-limit` errors. */
-    readonly resetAt?: number,
-  ) {
-    super(message);
-    this.name = 'GitHubApiError';
-  }
-}
-
-export interface RateLimit {
-  limit: number;
-  remaining: number;
-  /** Epoch seconds. */
-  resetAt: number;
-}
-
 /** Last seen rate-limit headers, so the UI can show the budget without an extra request. */
-let lastRateLimit: RateLimit | null = null;
+let seen: RateLimit | null = null;
 
-export function getLastRateLimit(): RateLimit | null {
-  return lastRateLimit;
+export function lastRateLimit(): RateLimit | null {
+  return seen;
 }
 
 function readRateLimit(headers: Headers): void {
@@ -43,7 +22,7 @@ function readRateLimit(headers: Headers): void {
   const remaining = headers.get('x-ratelimit-remaining');
   const reset = headers.get('x-ratelimit-reset');
   if (limit && remaining && reset) {
-    lastRateLimit = {
+    seen = {
       limit: Number(limit),
       remaining: Number(remaining),
       resetAt: Number(reset),
@@ -66,7 +45,7 @@ async function request<T>(path: string, token: string): Promise<T> {
   try {
     response = await fetch(`${API_BASE}${path}`, { headers });
   } catch (error) {
-    throw new GitHubApiError(
+    throw new ProviderError(
       error instanceof Error ? error.message : 'Network request failed',
       'network',
     );
@@ -82,29 +61,34 @@ async function request<T>(path: string, token: string): Promise<T> {
     const budgetExhausted = response.headers.get('x-ratelimit-remaining') === '0';
     if (budgetExhausted) {
       const resetAt = Number(response.headers.get('x-ratelimit-reset') ?? 0);
-      throw new GitHubApiError('GitHub API rate limit exceeded', 'rate-limit', response.status, resetAt);
+      throw new ProviderError(
+        'GitHub API rate limit exceeded',
+        'rate-limit',
+        response.status,
+        resetAt,
+      );
     }
 
     const needsSsoAuthorization = response.headers.get('x-github-sso') !== null;
     if (needsSsoAuthorization) {
-      throw new GitHubApiError(
+      throw new ProviderError(
         'This token has not been authorised for the organisation that owns this repository.',
         'sso',
         response.status,
       );
     }
 
-    throw new GitHubApiError('Access denied by GitHub', 'auth', response.status);
+    throw new ProviderError('Access denied by GitHub', 'auth', response.status);
   }
 
   if (response.status === 401) {
-    throw new GitHubApiError('GitHub token is invalid or expired', 'auth', 401);
+    throw new ProviderError('GitHub token is invalid or expired', 'auth', 401);
   }
 
   // 404 also means "your token cannot see it": GitHub hides a private repository's very
   // existence, and an org with OAuth App access restrictions looks identical from here.
   if (response.status === 404) {
-    throw new GitHubApiError(
+    throw new ProviderError(
       'Repository not found, or this token cannot read it. If it belongs to an ' +
         'organisation, an owner may need to approve this extension’s OAuth app.',
       'not-found',
@@ -112,18 +96,12 @@ async function request<T>(path: string, token: string): Promise<T> {
     );
   }
 
-  throw new GitHubApiError(`GitHub API returned ${response.status}`, 'server', response.status);
-}
-
-export interface RepoInfo {
-  defaultBranch: string;
-  /** Repository size in KB, as reported by GitHub. */
-  sizeKb: number;
+  throw new ProviderError(`GitHub API returned ${response.status}`, 'server', response.status);
 }
 
 export async function fetchRepoInfo(repo: RepoRef, token: string): Promise<RepoInfo> {
   const data = await request<{ default_branch: string; size: number }>(
-    `/repos/${repo.owner}/${repo.repo}`,
+    `/repos/${slug(repo)}`,
     token,
   );
 
@@ -137,31 +115,37 @@ export async function fetchCommitSha(
   token: string,
 ): Promise<string> {
   const data = await request<{ sha: string }>(
-    `/repos/${repo.owner}/${repo.repo}/commits/${encodeURIComponent(branch)}`,
+    `/repos/${slug(repo)}/commits/${encodeURIComponent(branch)}`,
     token,
   );
   return data.sha;
 }
 
-export interface TreeResult {
-  entries: TreeEntry[];
-  /**
-   * GitHub caps the response at 100k entries / 7 MB. When this is true the listing is
-   * incomplete and any total we compute is a lower bound.
-   */
-  truncated: boolean;
-}
-
-/** Fetches the entire file listing for a commit in one request. */
+/** GitHub caps this at 100k entries / 7 MB, which is what `truncated` reports. */
 export async function fetchTree(
   repo: RepoRef,
   commitSha: string,
   token: string,
 ): Promise<TreeResult> {
   const data = await request<{ tree: TreeEntry[]; truncated: boolean }>(
-    `/repos/${repo.owner}/${repo.repo}/git/trees/${commitSha}?recursive=1`,
+    `/repos/${slug(repo)}/git/trees/${commitSha}?recursive=1`,
     token,
   );
   return { entries: data.tree, truncated: data.truncated };
 }
 
+const slug = (repo: RepoRef) =>
+  `${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
+
+/**
+ * The REST endpoint rather than `codeload.github.com` directly: it 302s to a signed
+ * codeload URL, and that redirect is the only documented route to a private repository's
+ * archive. `fetch` follows it and strips `Authorization` on the cross-origin hop, which is
+ * what we want — the signed URL carries its own credential.
+ */
+export function archiveRequest(repo: RepoRef, commitSha: string, token: string): ArchiveRequest {
+  return {
+    url: `${API_BASE}/repos/${slug(repo)}/tarball/${commitSha}`,
+    headers: authHeaders(token),
+  };
+}

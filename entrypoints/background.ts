@@ -7,33 +7,29 @@ import {
   type RepoPreview,
   type Request,
   type Response,
-} from '../src/core/messages';
-import {
-  GitHubApiError,
-  fetchCommitSha,
-  fetchRepoInfo,
-  fetchTree,
-  getLastRateLimit,
-} from '../src/core/github-api';
-import { filterTree } from '../src/core/filter';
-import { disambiguate } from '../src/core/disambiguate';
-import { buildRepoStats, type FileResult } from '../src/core/aggregate';
-import { runCountJob } from '../src/core/offscreen-host';
-import * as cache from '../src/core/cache';
-import { claimCacheCleanup, getSettings, getToken, setToken } from '../src/core/storage';
-import type { CountableFile, RepoRef } from '../src/core/types';
+} from '../src/messaging/messages';
+import { ProviderError } from '../src/common';
+import type { ProviderId, RepoRef } from '../src/common';
+import { providerFor } from '../src/providers/registry';
+import { filterTree } from '../src/logic/filter';
+import { disambiguate } from '../src/logic/disambiguate';
+import { buildRepoStats, type FileResult } from '../src/logic/aggregate';
+import { runCountJob } from '../src/messaging/offscreen-host';
+import * as cache from '../src/logic/cache';
+import { claimCacheCleanup, getSettings, getToken, setToken } from '../src/logic/settings';
+import type { CountableFile } from '../src/logic/interfaces';
 
 /** Thrown before any request goes out when there is no token to make one with. */
 class NoTokenError extends Error {
-  constructor() {
-    super('Sign in to GitHub from the extension options to count repositories.');
+  constructor(label: string) {
+    super(`Sign in to ${label} from the extension options to count repositories.`);
     this.name = 'NoTokenError';
   }
 }
 
-async function requireToken(): Promise<string> {
-  const token = await getToken();
-  if (!token) throw new NoTokenError();
+async function requireToken(repo: RepoRef): Promise<string> {
+  const token = await getToken(repo.provider);
+  if (!token) throw new NoTokenError(providerFor(repo.provider).label);
   return token;
 }
 
@@ -45,9 +41,10 @@ export default defineBackground(() => {
       // Messages addressed to the offscreen document travel on the same bus.
       if ('target' in request) return false;
 
+      const provider = request.kind === 'preview' ? request.repo.provider : null;
       handle(request)
         .then((data) => sendResponse({ ok: true, data }))
-        .catch((error: unknown) => sendResponse(toErrorResponse(error)));
+        .catch((error: unknown) => sendResponse(toErrorResponse(error, provider)));
 
       // Returning true keeps the message channel open for the async response.
       return true;
@@ -73,7 +70,7 @@ export default defineBackground(() => {
       };
 
       void analyze(start, send).catch((error: unknown) => {
-        const response = toErrorResponse(error);
+        const response = toErrorResponse(error, start.repo.provider);
         send({
           kind: 'error',
           message: response.error,
@@ -85,22 +82,21 @@ export default defineBackground(() => {
   });
 });
 
-function toErrorResponse(error: unknown): {
-  ok: false;
-  error: string;
-  code?: ErrorCode;
-  resetAt?: number;
-} {
+/** `provider` is null for requests that touch no host, such as the cache ones. */
+function toErrorResponse(
+  error: unknown,
+  provider: ProviderId | null,
+): { ok: false; error: string; code?: ErrorCode; resetAt?: number } {
   if (error instanceof NoTokenError) {
     return { ok: false, error: error.message, code: 'no-token' };
   }
 
-  if (error instanceof GitHubApiError) {
-    // Keeping a token GitHub has rejected only makes every later request fail the same
+  if (error instanceof ProviderError) {
+    // Keeping a token the host has rejected only makes every later request fail the same
     // way, until the user happens to open the options page.
-    if (error.status === 401) {
-      void setToken(null);
-      return { ok: false, error: 'Your GitHub sign-in expired. Sign in again.', code: 'no-token' };
+    if (error.status === 401 && provider) {
+      void setToken(provider, null);
+      return { ok: false, error: 'Your sign-in expired. Sign in again.', code: 'no-token' };
     }
 
     return {
@@ -162,19 +158,20 @@ function resolve(repo: RepoRef): Promise<Resolved> {
 
 /** Resolves a repository to a commit and the list of files worth counting. */
 async function resolveUncached(repo: RepoRef) {
-  const [token, settings] = await Promise.all([requireToken(), getSettings()]);
+  const provider = providerFor(repo.provider);
+  const [token, settings] = await Promise.all([requireToken(repo), getSettings()]);
 
   // `HEAD` resolves to the default branch's tip without first having to learn the branch
   // name, so these two run together and the resolve costs two round trips instead of
   // three. The ref spelling is not contractual, so a failure falls back to the explicit
   // branch rather than failing the whole resolve.
   const [info, headSha] = await Promise.all([
-    fetchRepoInfo(repo, token),
-    fetchCommitSha(repo, 'HEAD', token).catch(() => null),
+    provider.fetchRepoInfo(repo, token),
+    provider.fetchCommitSha(repo, 'HEAD', token).catch(() => null),
   ]);
 
-  const commitSha = headSha ?? (await fetchCommitSha(repo, info.defaultBranch, token));
-  const tree = await fetchTree(repo, commitSha, token);
+  const commitSha = headSha ?? (await provider.fetchCommitSha(repo, info.defaultBranch, token));
+  const tree = await provider.fetchTree(repo, commitSha, token);
 
   const filtered = filterTree(tree.entries, settings);
   const { files } = disambiguate(filtered.files);
@@ -198,7 +195,7 @@ async function preview(request: PreviewRequest): Promise<RepoPreview> {
   const { repo } = request;
   const resolved = await resolve(repo);
 
-  const cached = await cache.getRepoRun(repo.owner, repo.repo, resolved.commitSha);
+  const cached = await cache.getRepoRun(repo, resolved.commitSha);
   const known = await cache.getBlobStats(resolved.files.map((file) => file.sha));
 
   // The archive is all-or-nothing: either every file is already counted and nothing is
@@ -212,10 +209,11 @@ async function preview(request: PreviewRequest): Promise<RepoPreview> {
     fileCount: resolved.files.length,
     totalBytes: resolved.totalBytes,
     cachedCount: known.size,
-    archiveBytes: needsDownload ? resolved.sizeKb * 1024 : null,
+    needsDownload,
+    archiveBytes: needsDownload && resolved.sizeKb !== null ? resolved.sizeKb * 1024 : null,
     truncated: resolved.truncated,
     cached,
-    rateLimit: getLastRateLimit(),
+    rateLimit: providerFor(repo.provider).lastRateLimit(),
   };
 }
 
@@ -228,7 +226,7 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
   const { repo } = start;
 
   // `resolve` may answer from its cache without ever touching storage, so read it here.
-  const token = await requireToken();
+  const token = await requireToken(repo);
 
   // "Refresh" must see new commits, so it bypasses the resolve cache too. It deliberately
   // leaves `blobStats` alone: a blob SHA is a hash of the file's contents, so a cached
@@ -239,7 +237,7 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
   const resolved = await resolve(repo);
 
   if (!start.force) {
-    const cached = await cache.getRepoRun(repo.owner, repo.repo, resolved.commitSha);
+    const cached = await cache.getRepoRun(repo, resolved.commitSha);
     if (cached) {
       emit({ kind: 'result', stats: cached, failures: 0 });
       return;
@@ -273,8 +271,7 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
 
   const buildStats = (partial: boolean) =>
     buildRepoStats({
-      owner: repo.owner,
-      repo: repo.repo,
+      repo,
       commitSha: resolved.commitSha,
       branch: resolved.branch,
       results: [...cachedResults, ...downloaded.values()],
@@ -328,4 +325,3 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
 
   emit({ kind: 'result', stats, failures: failureCount });
 }
-

@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  AuthError,
-  isConfigured,
-  pollForToken,
-  requestDeviceCode,
-  signOut,
-  verifyToken,
-  type DeviceCode,
-} from '../core/auth';
-import { getSettings, getToken, saveSettings, type Settings } from '../core/storage';
-import { sendRequest } from '../core/messages';
+import { AuthError } from '../common';
+import type { DeviceCode } from '../common';
+import { providerFor } from '../providers/registry';
+import { getSettings, getToken, saveSettings, setToken, type Settings } from '../logic/settings';
+import { sendRequest } from '../messaging/messages';
 import { formatBytes, formatCount } from './format';
-import type { FileCategory } from '../core/types';
+import type { FileCategory } from '../logic/interfaces';
 
 const CATEGORY_LABELS: Record<FileCategory, string> = {
   code: 'Source code',
@@ -45,6 +39,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** One provider for now; a second would turn this into a section per provider. */
+const provider = providerFor('github');
+
 function AccountSection() {
   const [login, setLogin] = useState<string | null>(null);
   const [device, setDevice] = useState<DeviceCode | null>(null);
@@ -59,12 +56,12 @@ function AccountSection() {
   useEffect(() => () => signIn.current?.abort(), []);
 
   useEffect(() => {
-    void getToken().then(async (token) => {
+    void getToken(provider.id).then(async (token) => {
       if (!token) return;
 
-      const check = await verifyToken(token);
+      const check = await provider.auth.verifyToken(token);
       if (check === 'invalid') {
-        await signOut();
+        await setToken(provider.id, null);
         return;
       }
       // Deliberately keeps the token: a dropped connection says nothing about it, and
@@ -87,7 +84,7 @@ function AccountSection() {
     signIn.current = controller;
 
     try {
-      const code = await requestDeviceCode();
+      const code = await provider.auth.requestDeviceCode();
       setDevice(code);
 
       // GitHub's page wants the code typed in; the clipboard turns that into one paste.
@@ -100,11 +97,12 @@ function AccountSection() {
 
       await browser.tabs.create({ url: code.verificationUri });
 
-      const token = await pollForToken(code, { signal: controller.signal });
-      const check = await verifyToken(token);
+      const token = await provider.auth.pollForToken(code, { signal: controller.signal });
+      await setToken(provider.id, token);
+      const check = await provider.auth.verifyToken(token);
       setLogin(typeof check === 'string' ? 'signed in' : check.login);
       setDevice(null);
-    } catch (caught) {
+    } catch (caught: unknown) {
       const cancelled = caught instanceof AuthError && caught.code === 'cancelled';
       if (!cancelled) setError(caught instanceof AuthError ? caught.message : String(caught));
       setDevice(null);
@@ -115,7 +113,7 @@ function AccountSection() {
   };
 
   const handleSignOut = async () => {
-    await signOut();
+    await setToken(provider.id, null);
     setLogin(null);
     setNotice(null);
   };
@@ -134,7 +132,7 @@ function AccountSection() {
         browser profile and is sent to GitHub and nowhere else.
       </p>
 
-      {!isConfigured() && (
+      {!provider.auth.isConfigured() && (
         <p className="rounded-md bg-[var(--page-subtle)] p-2 text-[var(--page-muted)]">
           This build has no OAuth client ID, so signing in is impossible and nothing will work.
           Rebuild with <code>WXT_GITHUB_CLIENT_ID</code> set.
@@ -146,7 +144,11 @@ function AccountSection() {
           <span>
             Signed in as <strong>{login}</strong>
           </span>
-          <button type="button" onClick={handleSignOut} className="rounded-md border border-[var(--page-border)] px-3 py-1">
+          <button
+            type="button"
+            onClick={() => void handleSignOut()}
+            className="rounded-md border border-[var(--page-border)] px-3 py-1"
+          >
             Sign out
           </button>
         </div>
@@ -154,7 +156,12 @@ function AccountSection() {
         <div className="rounded-md bg-[var(--page-subtle)] p-3">
           <p>
             {copied ? 'Paste this code at ' : 'Enter this code at '}
-            <a href={device.verificationUri} target="_blank" rel="noreferrer" className="text-[var(--page-accent)] underline">
+            <a
+              href={device.verificationUri}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[var(--page-accent)] underline"
+            >
               {device.verificationUri}
             </a>
             :
@@ -174,8 +181,8 @@ function AccountSection() {
       ) : (
         <button
           type="button"
-          onClick={startSignIn}
-          disabled={busy || !isConfigured()}
+          onClick={() => void startSignIn()}
+          disabled={busy || !provider.auth.isConfigured()}
           className="rounded-md bg-[var(--page-accent)] px-3 py-1.5 text-white disabled:opacity-50"
         >
           {busy ? 'Starting…' : 'Sign in with GitHub'}
@@ -254,7 +261,12 @@ function FiltersSection() {
           rows={3}
           value={settings.excludePaths.join('\n')}
           onChange={(event) =>
-            update({ excludePaths: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean) })
+            update({
+              excludePaths: event.target.value
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean),
+            })
           }
           placeholder="legacy/&#10;examples/"
           className="mt-1 w-full rounded-md border border-[var(--page-border)] bg-transparent px-2 py-1 font-mono text-xs"
@@ -292,7 +304,11 @@ function CacheSection() {
           ? `${formatCount(stats.blobs)} files and ${formatCount(stats.runs)} repository snapshots cached`
           : 'Reading…'}
       </p>
-      <button type="button" onClick={clear} className="rounded-md border border-[var(--page-border)] px-3 py-1">
+      <button
+        type="button"
+        onClick={() => void clear()}
+        className="rounded-md border border-[var(--page-border)] px-3 py-1"
+      >
         Clear cache
       </button>
     </Section>

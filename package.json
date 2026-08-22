@@ -12,6 +12,10 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "postinstall": "wxt prepare",
     "gen:languages": "tsx scripts/gen-languages.ts"
   },
@@ -21,13 +25,19 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@wxt-dev/module-react": "^1.2.2",
+    "eslint": "^10.9.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.67.0",
     "wxt": "^0.21.1",
     "yaml": "^2.7.0"
   },

@@ -76,6 +76,7 @@ const JS_STYLE: CommentSyntax = {
 };
 
 /** Keys are Linguist language names, so they match `filter.ts` output exactly. */
+// prettier-ignore
 export const COMMENT_SYNTAX: Record<string, CommentSyntax> = {
   // C family
   C: C_STYLE,

@@ -1,14 +1,14 @@
 import { syntaxFor, type CommentSyntax } from './comment-syntax';
 import type { FileResult } from './aggregate';
-import type { CountableFile, LineStats } from './types';
+import type { CountableFile, LineStats } from './interfaces';
 
 /**
  * Line counting that distinguishes code from comments.
  *
  * The parser walks each line character by character, tracking whether it is inside a
- * string or a block comment, so that `"// not a comment"` counts as code and
- * `/* int x; *​/` does not. State carries across lines, which is what makes block
- * comments and multi-line strings work.
+ * string or a block comment, so that `"// not a comment"` counts as code while a block
+ * comment wrapping the same text does not. State carries across lines, which is what
+ * makes block comments and multi-line strings work.
  *
  * A line holding both code and a comment counts as code — the same convention tokei and
  * cloc use.
@@ -25,7 +25,7 @@ interface ParserState {
   stringCloser: string | null;
   /** True when the open multi-line string is a docstring and counts as a comment. */
   stringIsDoc: boolean;
-  /** True when the open multi-line string ignores escape sequences. */
+  /** True when the open multi-linяe string ignores escape sequences. */
   stringIsRaw: boolean;
 }
 
@@ -72,7 +72,12 @@ function rustRawStringAt(line: string, index: number): Opener | null {
   if (!match) return null;
 
   const hashes = match[1]!;
-  return { kind: 'multiline', token: match[0], closer: `"${hashes}`, raw: true };
+  return {
+    kind: 'multiline',
+    token: match[0],
+    closer: `"${hashes}`,
+    raw: true,
+  };
 }
 
 /**
@@ -90,7 +95,12 @@ function longestOpener(line: string, index: number, syntax: CommentSyntax): Open
     candidates.push({ kind: 'block', token: open, closer: close, raw: false });
   }
   for (const doc of syntax.docStrings ?? []) {
-    candidates.push({ kind: 'doc', token: doc.open, closer: doc.close, raw: doc.raw ?? false });
+    candidates.push({
+      kind: 'doc',
+      token: doc.open,
+      closer: doc.close,
+      raw: doc.raw ?? false,
+    });
   }
   for (const multi of syntax.multilineStrings ?? []) {
     candidates.push({

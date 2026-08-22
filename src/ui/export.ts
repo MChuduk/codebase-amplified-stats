@@ -1,4 +1,4 @@
-import type { LanguageStats, RepoStats } from '../core/types';
+import type { LanguageStats, RepoStats } from '../logic/interfaces';
 
 /**
  * Exporting results. Downloads are triggered from the content script, so the blob URL is
@@ -66,7 +66,9 @@ export function exportCsv(stats: RepoStats, languages: LanguageStats[]): void {
     .map((row) =>
       row
         // Quote anything that could otherwise break the column layout.
-        .map((cell) => (/[",\n]/.test(String(cell)) ? `"${String(cell).replaceAll('"', '""')}"` : cell))
+        .map((cell) =>
+          /[",\n]/.test(String(cell)) ? `"${String(cell).replaceAll('"', '""')}"` : cell,
+        )
         .join(','),
     )
     .join('\n');

@@ -1,14 +1,14 @@
-import type { BlobJob, WorkerMessage } from './counter.worker';
-import type { FileResult } from '../../src/core/aggregate';
-import type { CountFailure } from '../../src/core/counter';
-import { readTarball, tarballUrl } from '../../src/core/tarball';
-import { authHeaders } from '../../src/core/github-api';
-import type { CountableFile } from '../../src/core/types';
 import type {
   OffscreenProgress,
   OffscreenRequest,
   OffscreenResponse,
-} from '../../src/core/offscreen-protocol';
+} from '../../src/messaging/offscreen-protocol';
+import type { BlobJob, WorkerMessage } from './counter.worker';
+import type { FileResult } from '../../src/logic/aggregate';
+import type { CountFailure } from '../../src/logic/counter';
+import { readTarball } from '../../src/logic/tar';
+import { providerFor } from '../../src/providers/registry';
+import type { CountableFile } from '../../src/logic/interfaces';
 
 /**
  * Host page for the counting workers.
@@ -84,9 +84,12 @@ async function runTarballJob(
   const binaries: string[] = [];
   let done = 0;
 
-  const response = await fetch(tarballUrl(request.repo, request.commitSha), {
-    headers: authHeaders(request.token),
-  });
+  const archive = providerFor(request.repo.provider).archiveRequest(
+    request.repo,
+    request.commitSha,
+    request.token,
+  );
+  const response = await fetch(archive.url, { headers: archive.headers });
 
   if (!response.ok) throw new Error(`archive request failed with HTTP ${response.status}`);
   if (!response.body) throw new Error('archive response had no body');

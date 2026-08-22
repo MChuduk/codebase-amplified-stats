@@ -13,8 +13,7 @@
 .gas-panel {
   color: var(--fgColor-default, var(--color-fg-default, #1f2328));
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial,
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   padding-top: 16px;

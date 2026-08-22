@@ -1,18 +1,13 @@
-import {
-  DOCUMENTATION_PATTERNS,
-  EXTENSIONS,
-  FILENAMES,
-  LANGUAGES,
-  VENDOR_PATTERNS,
-} from './languages.generated';
+import type { TreeEntry } from '../common';
+import { DOCUMENTATION_PATTERNS, LANGUAGES, VENDOR_PATTERNS } from './languages.generated';
+import { detectLanguage, extensionOf } from './detect';
 import type {
   CountableFile,
   FileCategory,
   FilterOptions,
   FilterResult,
   SkipReason,
-  TreeEntry,
-} from './types';
+} from './interfaces';
 
 /**
  * Paths that are machine-written rather than authored. Linguist decides most of these by
@@ -63,6 +58,7 @@ const GENERATED_PATTERNS: string[] = [
  * hand-maintained list; anything that slips through is caught by the NUL-byte check in
  * the counter.
  */
+// prettier-ignore
 const BINARY_EXTENSIONS = new Set([
   // Images
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.icns', '.tif', '.tiff', '.webp',
@@ -103,30 +99,6 @@ const vendor = compile(VENDOR_PATTERNS);
 const generated = compile(GENERATED_PATTERNS);
 const documentation = compile(DOCUMENTATION_PATTERNS);
 const tests = compile(TEST_PATTERNS);
-
-/** Extension including the leading dot, lower-cased. Empty when the file has none. */
-export function extensionOf(path: string): string {
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  const dot = name.lastIndexOf('.');
-  // A leading dot means a dotfile (.gitignore), not an extension.
-  if (dot <= 0) return '';
-  return name.slice(dot).toLowerCase();
-}
-
-export function filenameOf(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1);
-}
-
-/** Null for anything Linguist does not recognise. */
-export function detectLanguage(path: string): string | null {
-  const byFilename = FILENAMES[filenameOf(path)];
-  if (byFilename) return byFilename;
-
-  const extension = extensionOf(path);
-  if (!extension) return null;
-
-  return EXTENSIONS[extension] ?? null;
-}
 
 function categorise(path: string, language: string): FileCategory {
   if (tests.test(path)) return 'test';

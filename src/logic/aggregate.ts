@@ -1,11 +1,6 @@
+import type { RepoRef } from '../common';
 import { LANGUAGES } from './languages.generated';
-import type {
-  FileCategory,
-  LanguageStats,
-  LineStats,
-  RepoStats,
-  SkipReason,
-} from './types';
+import type { FileCategory, LanguageStats, LineStats, RepoStats, SkipReason } from './interfaces';
 
 export interface FileResult {
   path: string;
@@ -49,7 +44,10 @@ export function aggregate(
   const groupLanguages = options.groupLanguages ?? true;
   const byLanguage = new Map<
     string,
-    { totals: ReturnType<typeof emptyStats>; byCategory: Map<FileCategory, ReturnType<typeof emptyStats>> }
+    {
+      totals: ReturnType<typeof emptyStats>;
+      byCategory: Map<FileCategory, ReturnType<typeof emptyStats>>;
+    }
   >();
 
   for (const result of results) {
@@ -78,7 +76,7 @@ export function aggregate(
       language,
       color: LANGUAGES[language]?.color ?? null,
       ...entry.totals,
-      byCategory: Object.fromEntries(entry.byCategory) as LanguageStats['byCategory'],
+      byCategory: Object.fromEntries(entry.byCategory),
     });
   }
 
@@ -113,8 +111,7 @@ export function totalsOf(languages: LanguageStats[]): LineStats & { files: numbe
 }
 
 export function buildRepoStats(params: {
-  owner: string;
-  repo: string;
+  repo: RepoRef;
   commitSha: string;
   branch: string;
   results: FileResult[];
@@ -124,8 +121,9 @@ export function buildRepoStats(params: {
 }): RepoStats {
   const languages = aggregate(params.results);
   return {
-    owner: params.owner,
-    repo: params.repo,
+    provider: params.repo.provider,
+    owner: params.repo.owner,
+    repo: params.repo.repo,
     commitSha: params.commitSha,
     branch: params.branch,
     languages,
@@ -162,7 +160,12 @@ export function filterByCategory(
     }
 
     if (totals.files > 0) {
-      filtered.push({ language: language.language, color: language.color, ...totals, byCategory: kept });
+      filtered.push({
+        language: language.language,
+        color: language.color,
+        ...totals,
+        byCategory: kept,
+      });
     }
   }
 

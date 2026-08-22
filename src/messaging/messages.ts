@@ -1,4 +1,5 @@
-import type { RepoRef, RepoStats } from './types';
+import type { RepoRef } from '../common';
+import type { RepoStats } from '../logic/interfaces';
 
 /**
  * Message contract between the content script and the background service worker.
@@ -32,10 +33,12 @@ export interface RepoPreview {
   totalBytes: number;
   /** Of those files, how many are already counted and will be skipped. */
   cachedCount: number;
+  needsDownload: boolean;
   /**
-   * Null when nothing needs downloading. Otherwise an estimate of the whole repository,
-   * vendored and binary files included, because the archive carries all of it — not the
-   * sum of the files worth counting, which would understate it badly.
+   * An estimate of the whole repository, vendored and binary files included, because the
+   * archive carries all of it — not the sum of the files worth counting, which would
+   * understate it badly. Null when there is nothing to download, and also when the host
+   * reports no size, so `needsDownload` is what decides whether a download happens.
    */
   archiveBytes: number | null;
   truncated: boolean;
@@ -61,6 +64,7 @@ export type Response<T> =
 
 export async function sendRequest<T>(request: Request): Promise<Response<T>> {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- `sendMessage` is typed `any`; without this the caller gets `any` back.
     return (await browser.runtime.sendMessage(request)) as Response<T>;
   } catch (error) {
     return {

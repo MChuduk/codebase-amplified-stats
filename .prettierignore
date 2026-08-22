@@ -1,0 +1,7 @@
+.output
+.wxt
+node_modules
+pnpm-lock.yaml
+
+# Regenerate with `pnpm gen:languages`; never hand-edited, so never reformatted.
+src/logic/languages.generated.ts

@@ -1,6 +1,7 @@
-import type { FileResult } from './aggregate';
-import type { CountFailure } from './counter';
-import type { CountableFile, RepoRef } from './types';
+import type { RepoRef } from '../common';
+import type { FileResult } from '../logic/aggregate';
+import type { CountFailure } from '../logic/counter';
+import type { CountableFile } from '../logic/interfaces';
 
 /** Messages between the background service worker and the offscreen worker host. */
 

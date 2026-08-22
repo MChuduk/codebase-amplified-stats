@@ -1,11 +1,12 @@
-import { setToken } from './storage';
+import { AuthError } from '../../common';
+import type { DeviceCode, TokenCheck } from '../../common';
 
 /**
  * GitHub OAuth Device Flow — the only OAuth grant that needs no client secret, which is
  * what makes it usable from an extension with no backend. The client ID is public by
  * design and ships inside the bundle.
  */
-const CLIENT_ID = import.meta.env.WXT_GITHUB_CLIENT_ID ?? '';
+const CLIENT_ID: string = (import.meta.env.WXT_GITHUB_CLIENT_ID as string | undefined) ?? '';
 
 /**
  * `repo` is the only classic OAuth scope that opens private repositories; GitHub offers no
@@ -17,28 +18,6 @@ const SCOPE = 'repo';
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
-
-export class AuthError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-  ) {
-    super(message);
-    this.name = 'AuthError';
-  }
-}
-
-export interface DeviceCode {
-  /** Shown to the user to type into GitHub. */
-  userCode: string;
-  /** Where the user types it. */
-  verificationUri: string;
-  deviceCode: string;
-  /** Seconds until this code expires. */
-  expiresIn: number;
-  /** Minimum seconds between polls, as dictated by GitHub. */
-  interval: number;
-}
 
 export function isConfigured(): boolean {
   return CLIENT_ID.length > 0;
@@ -122,10 +101,7 @@ export async function pollForToken(
       error_description?: string;
     };
 
-    if (data.access_token) {
-      await setToken(data.access_token);
-      return data.access_token;
-    }
+    if (data.access_token) return data.access_token;
 
     switch (data.error) {
       case 'authorization_pending':
@@ -161,12 +137,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/**
- * `invalid` and `network` stay separate because callers discard the token on `invalid`.
- * Collapsing them would sign the user out every time their connection blinked.
- */
-export type TokenCheck = { login: string } | 'invalid' | 'network';
-
 export async function verifyToken(token: string): Promise<TokenCheck> {
   let response: Response;
   try {
@@ -183,8 +153,4 @@ export async function verifyToken(token: string): Promise<TokenCheck> {
 
   const data = (await response.json()) as { login?: string };
   return data.login ? { login: data.login } : 'invalid';
-}
-
-export async function signOut(): Promise<void> {
-  await setToken(null);
 }

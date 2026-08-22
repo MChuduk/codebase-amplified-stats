@@ -6,9 +6,10 @@ import {
   type AnalyzePhase,
   type ErrorCode,
   type RepoPreview,
-} from '../core/messages';
+} from '../../messaging/messages';
+import type { RepoRef } from '../../common';
 import type { Browser } from 'wxt/browser';
-import type { RepoRef, RepoStats } from '../core/types';
+import type { RepoStats } from '../../logic/interfaces';
 
 export type AnalysisState =
   | { status: 'loading' }

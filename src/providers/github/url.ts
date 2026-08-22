@@ -1,4 +1,4 @@
-import type { RepoRef } from './types';
+import type { RepoRef } from '../../common';
 
 /**
  * Paths under github.com that look like `/{owner}/{repo}` but are not repositories.
@@ -45,17 +45,10 @@ const RESERVED_OWNERS = new Set([
  * Sub-pages (`/tree/...`, `/issues`, ...) resolve to the repository too, so the panel
  * stays mounted while browsing around inside one.
  */
-export function parseRepoUrl(url: string | URL): RepoRef | null {
-  let parsed: URL;
-  try {
-    parsed = typeof url === 'string' ? new URL(url) : url;
-  } catch {
-    return null;
-  }
+export function parseRepoUrl(url: URL): RepoRef | null {
+  if (url.hostname !== 'github.com') return null;
 
-  if (parsed.hostname !== 'github.com') return null;
-
-  const segments = parsed.pathname.split('/').filter(Boolean);
+  const segments = url.pathname.split('/').filter(Boolean);
   if (segments.length < 2) return null;
 
   const [owner, repo] = segments as [string, string];
@@ -66,12 +59,11 @@ export function parseRepoUrl(url: string | URL): RepoRef | null {
   const cleanRepo = repo.replace(/\.git$/, '');
   if (!cleanRepo) return null;
 
-  return { owner, repo: cleanRepo };
+  return { provider: 'github', owner, repo: cleanRepo };
 }
 
 /** True when the URL is the repository's landing page, where the sidebar lives. */
-export function isRepoHomePage(url: string | URL): boolean {
-  const parsed = typeof url === 'string' ? new URL(url) : url;
-  const segments = parsed.pathname.split('/').filter(Boolean);
-  return parseRepoUrl(parsed) !== null && segments.length === 2;
+export function isRepoHomePage(url: URL): boolean {
+  const segments = url.pathname.split('/').filter(Boolean);
+  return parseRepoUrl(url) !== null && segments.length === 2;
 }

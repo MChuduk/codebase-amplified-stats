@@ -1,5 +1,5 @@
-import { extensionOf, filenameOf } from './filter';
-import type { CountableFile } from './types';
+import { extensionOf, filenameOf } from './detect';
+import type { CountableFile } from './interfaces';
 
 /**
  * Repository-level disambiguation for extensions claimed by several languages.
@@ -46,14 +46,22 @@ const RULES: Rule[] = [
     candidates: [
       // Qt translation sources are XML and live next to Qt project files.
       { language: 'XML', extensions: ['.pro', '.qrc', '.ui'] },
-      { language: 'TypeScript', extensions: ['.tsx', '.js', '.mts'], filenames: ['package.json', 'tsconfig.json'] },
+      {
+        language: 'TypeScript',
+        extensions: ['.tsx', '.js', '.mts'],
+        filenames: ['package.json', 'tsconfig.json'],
+      },
     ],
     fallback: 'TypeScript',
   },
   {
     extension: '.pl',
     candidates: [
-      { language: 'Perl', extensions: ['.pm', '.t', '.pod'], filenames: ['cpanfile', 'Makefile.PL'] },
+      {
+        language: 'Perl',
+        extensions: ['.pm', '.t', '.pod'],
+        filenames: ['cpanfile', 'Makefile.PL'],
+      },
       { language: 'Prolog', extensions: ['.pro', '.prolog', '.plt'] },
     ],
     fallback: 'Perl',
@@ -86,7 +94,11 @@ const RULES: Rule[] = [
   {
     extension: '.r',
     candidates: [
-      { language: 'R', extensions: ['.rmd', '.rd', '.rproj'], filenames: ['DESCRIPTION', 'NAMESPACE'] },
+      {
+        language: 'R',
+        extensions: ['.rmd', '.rd', '.rproj'],
+        filenames: ['DESCRIPTION', 'NAMESPACE'],
+      },
       { language: 'Rebol', extensions: ['.reb', '.r3'] },
     ],
     fallback: 'R',

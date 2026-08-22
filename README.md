@@ -50,12 +50,12 @@ Python docstrings, and CRLF.
 
 Verified per-file against `tokei` and `cloc` on real repositories:
 
-| Language | vs cloc |
-|---|---|
-| TypeScript, JavaScript, YAML, TOML, Ruby, Lua, CSS, HTML | **0.00%** |
-| Go | +0.4% |
-| Python | +1.5% |
-| Rust | between cloc and tokei |
+| Language                                                 | vs cloc                |
+| -------------------------------------------------------- | ---------------------- |
+| TypeScript, JavaScript, YAML, TOML, Ruby, Lua, CSS, HTML | **0.00%**              |
+| Go                                                       | +0.4%                  |
+| Python                                                   | +1.5%                  |
+| Rust                                                     | between cloc and tokei |
 
 Conventions follow `cloc`:
 
@@ -131,21 +131,29 @@ pnpm gen:languages     # regenerate language data from Linguist
 ```
 
 There are no tests at present. That is a deliberate, temporary state: verification is
-manual. Take particular care with `src/core/counter.ts` and `src/core/tarball.ts` — a
+manual. Take particular care with `src/logic/counter.ts` and `src/logic/tar.ts` — a
 regression in either produces numbers that look plausible and are wrong.
 
 ### Layout
 
 ```
 entrypoints/
-  github.content/    content script — mounts the panel into the sidebar
+  github.content/    per-host content script — a shell over src/ui/mount.tsx
   background.ts      orchestrator: resolve → filter → cache → count
   offscreen/         downloads and unpacks the archive; hosts the counting Workers
   options/           settings, sign-in, cache management
-src/core/            counting engine, GitHub client, filter, tar reader, cache — no DOM
-src/ui/              React components
+src/common/          shared by the engine and every host: RepoRef, errors, the Provider contract
+src/logic/           counting engine, filter, tar reader, cache — no DOM, no host specifics
+  interfaces/        its shapes: language, filter, stats
+src/providers/       GitHub's implementation of the contract, and the registry
+src/messaging/       message contracts between the four execution contexts
+src/ui/              React components, hooks/, and host-agnostic mounting
 scripts/             language-data generator
 ```
+
+Dependencies run one way. `src/common/` depends on nothing; `logic` and `providers` build on
+it and never on each other. Adding a second host means a new `src/providers/<host>/` and a
+content-script shell, with the counting engine untouched.
 
 ## Known limits
 
