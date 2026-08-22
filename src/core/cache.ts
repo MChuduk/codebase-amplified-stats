@@ -5,9 +5,10 @@ import type { LineStats, RepoStats } from './types';
 /**
  * Two-level cache.
  *
- * `blobStats` is keyed by Git blob SHA, which is a hash of the file's *contents*. That
- * makes it valid across commits, branches and even forks: a file that has not changed is
- * never downloaded twice, and pushing one commit re-counts only what that commit touched.
+ * `blobStats` is keyed by Git blob SHA, a hash of the file's *contents*, which makes it
+ * valid across commits, branches and even forks. Since the archive is fetched whole it
+ * saves no bandwidth — it saves counting, and lets a fully covered commit skip the
+ * download altogether.
  *
  * `repoRuns` stores whole results per commit so a revisit renders instantly.
  */
@@ -28,8 +29,8 @@ export interface BlobStatsRecord {
   language: string;
   lastUsed: number;
   /**
-   * Set when the blob turned out to be binary despite its extension. Without this the
-   * file is re-downloaded on every single run only to be thrown away again.
+   * Set when the blob turned out to be binary despite its extension. Without it the file
+   * is decoded and thrown away again on every single run.
    */
   binary?: true;
 }
@@ -68,7 +69,6 @@ function db(): Promise<IDBPDatabase<CacheSchema>> {
 const runKey = (owner: string, repo: string, commitSha: string) =>
   `${owner}/${repo}@${commitSha}`;
 
-/** Looks up cached line counts for a set of blob SHAs. */
 export async function getBlobStats(
   shas: string[],
 ): Promise<Map<string, BlobStatsRecord>> {
@@ -113,7 +113,6 @@ export async function getBlobStats(
   return found;
 }
 
-/** Stores line counts for freshly counted files. */
 export async function putBlobStats(results: FileResult[]): Promise<void> {
   if (results.length === 0) return;
 
@@ -135,7 +134,7 @@ export async function putBlobStats(results: FileResult[]): Promise<void> {
   await transaction.done;
 }
 
-/** Records blobs that turned out to be binary, so they are not downloaded again. */
+/** Records blobs that turned out to be binary, so they are never decoded again. */
 export async function putBinaryBlobs(shas: string[]): Promise<void> {
   if (shas.length === 0) return;
 
@@ -156,10 +155,9 @@ export async function putBinaryBlobs(shas: string[]): Promise<void> {
 const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Refreshes `lastUsed` so entries in active use survive eviction.
- *
- * Takes the records the caller already read rather than SHAs, which halves the work, and
- * skips anything stamped recently — on a warm repository that is usually no writes at all.
+ * Refreshes `lastUsed` so entries in active use survive eviction. Takes the records the
+ * caller already read rather than SHAs, and skips anything stamped recently — on a warm
+ * repository that usually means no writes at all.
  */
 export async function touchBlobStats(records: BlobStatsRecord[]): Promise<void> {
   const now = Date.now();

@@ -11,7 +11,6 @@ import type {
   FilterOptions,
   FilterResult,
   SkipReason,
-  SkippedFile,
   TreeEntry,
 } from './types';
 
@@ -95,25 +94,15 @@ const TEST_PATTERNS: string[] = [
   '(^|/)conftest\\.py$',
 ];
 
-/**
- * Compiles a pattern list into one alternation for the hot path, keeping the individual
- * expressions around so a match can be attributed to a specific rule when reporting.
- */
-function compile(patterns: string[]) {
-  return {
-    combined: new RegExp(patterns.map((p) => `(?:${p})`).join('|')),
-    individual: patterns.map((p) => ({ source: p, regex: new RegExp(p) })),
-  };
+/** One alternation per list, so the hot path is a single regex test. */
+function compile(patterns: string[]): RegExp {
+  return new RegExp(patterns.map((p) => `(?:${p})`).join('|'));
 }
 
 const vendor = compile(VENDOR_PATTERNS);
 const generated = compile(GENERATED_PATTERNS);
 const documentation = compile(DOCUMENTATION_PATTERNS);
 const tests = compile(TEST_PATTERNS);
-
-function whichPattern(set: ReturnType<typeof compile>, path: string): string | undefined {
-  return set.individual.find((entry) => entry.regex.test(path))?.source;
-}
 
 /** Extension including the leading dot, lower-cased. Empty when the file has none. */
 export function extensionOf(path: string): string {
@@ -128,7 +117,7 @@ export function filenameOf(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
-/** Resolves a path to a Linguist language, or null when we do not recognise it. */
+/** Null for anything Linguist does not recognise. */
 export function detectLanguage(path: string): string | null {
   const byFilename = FILENAMES[filenameOf(path)];
   if (byFilename) return byFilename;
@@ -140,10 +129,10 @@ export function detectLanguage(path: string): string | null {
 }
 
 function categorise(path: string, language: string): FileCategory {
-  if (tests.combined.test(path)) return 'test';
+  if (tests.test(path)) return 'test';
 
   const meta = LANGUAGES[language];
-  if (meta?.type === 'prose' || documentation.combined.test(path)) return 'docs';
+  if (meta?.type === 'prose' || documentation.test(path)) return 'docs';
   if (meta?.type === 'data') return 'data';
   return 'code';
 }
@@ -159,21 +148,18 @@ const EMPTY_REASONS: Record<SkipReason, number> = {
 };
 
 /**
- * Splits a Git tree into files worth counting and files to skip, recording why each one
- * was dropped. The reasons are shown in the UI — a number that cannot be explained is
- * worse than no number.
+ * Every skip records why. The reasons reach the panel, because a number the user cannot
+ * account for is worse than no number at all.
  */
 export function filterTree(entries: TreeEntry[], options: FilterOptions): FilterResult {
   const files: CountableFile[] = [];
-  const skipped: SkippedFile[] = [];
   const skippedByReason = { ...EMPTY_REASONS };
   let totalBytes = 0;
 
   const included = new Set(options.include);
   const excludePrefixes = options.excludePaths.filter(Boolean);
 
-  const skip = (path: string, reason: SkipReason, detail?: string) => {
-    skipped.push({ path, reason, ...(detail ? { detail } : {}) });
+  const skip = (reason: SkipReason) => {
     skippedByReason[reason] += 1;
   };
 
@@ -182,52 +168,51 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
 
     // Trees, symlinks (120000) and submodule pointers (160000) hold no countable content.
     if (entry.type !== 'blob' || entry.mode === '120000' || entry.mode === '160000') {
-      skip(path, 'not-a-file');
+      skip('not-a-file');
       continue;
     }
 
     if (excludePrefixes.some((prefix) => path.startsWith(prefix))) {
-      skip(path, 'excluded-type', 'user exclusion');
+      skip('excluded-type');
       continue;
     }
 
     // Cheap extension check before the regex batteries.
     if (BINARY_EXTENSIONS.has(extensionOf(path))) {
-      skip(path, 'binary');
+      skip('binary');
       continue;
     }
 
-    if (vendor.combined.test(path)) {
-      skip(path, 'vendored', whichPattern(vendor, path));
+    if (vendor.test(path)) {
+      skip('vendored');
       continue;
     }
 
-    if (generated.combined.test(path)) {
-      skip(path, 'generated', whichPattern(generated, path));
+    if (generated.test(path)) {
+      skip('generated');
       continue;
     }
 
     const language = detectLanguage(path);
     if (!language) {
-      skip(path, 'unknown-language');
+      skip('unknown-language');
       continue;
     }
 
     const category = categorise(path, language);
     if (!included.has(category)) {
-      skip(path, 'excluded-type', category);
+      skip('excluded-type');
       continue;
     }
 
     const size = entry.size ?? 0;
     if (size > options.maxFileSize) {
-      skip(path, 'too-large', `${size} bytes`);
+      skip('too-large');
       continue;
     }
 
-    // Empty files have nothing to count but would still cost a request.
     if (size === 0) {
-      skip(path, 'not-a-file', 'empty');
+      skip('not-a-file');
       continue;
     }
 
@@ -235,5 +220,5 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
     totalBytes += size;
   }
 
-  return { files, skipped, skippedByReason, totalBytes };
+  return { files, skippedByReason, totalBytes };
 }

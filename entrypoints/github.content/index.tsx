@@ -30,23 +30,19 @@ interface ActiveUi {
   remove: () => void;
   isConnected: () => boolean;
   remount: () => void;
-  /** Which anchor strategy the panel is currently sitting on. */
-  strategy: string;
+  anchorStrategy: string;
 }
 
-/** The UI currently on the page, so a re-mount can remove it first. */
 let active: ActiveUi | null = null;
-/** Aborts an in-flight wait when navigation happens mid-wait. */
-let pending: AbortController | null = null;
-/** Watches for GitHub re-rendering the sidebar out from under us. */
-let guard: MutationObserver | null = null;
+let pendingMount: AbortController | null = null;
+let sidebarObserver: MutationObserver | null = null;
 
 async function mount(ctx: ContentScriptContext) {
   const url = location.href;
 
-  pending?.abort();
-  pending = new AbortController();
-  const { signal } = pending;
+  pendingMount?.abort();
+  pendingMount = new AbortController();
+  const { signal } = pendingMount;
 
   teardown();
 
@@ -91,30 +87,30 @@ async function mount(ctx: ContentScriptContext) {
     remove: () => ui.remove(),
     isConnected: () => ui.shadowHost.isConnected,
     remount: () => ui.mount(),
-    strategy: findAnchor()?.strategy ?? found.strategy,
+    anchorStrategy: findAnchor()?.strategy ?? found.strategy,
   };
 
   // GitHub renders the sidebar progressively and re-renders parts of it as you interact,
   // which can either drop the panel or leave it anchored above the Languages block it
   // belongs under. Re-mount when either happens.
-  guard = new MutationObserver(() => {
+  sidebarObserver = new MutationObserver(() => {
     if (!active) return;
 
     const best = findAnchor();
     if (!best) return;
 
-    const misplaced = strategyRank(best.strategy) < strategyRank(active.strategy);
+    const misplaced = strategyRank(best.strategy) < strategyRank(active.anchorStrategy);
     if (!active.isConnected() || misplaced) {
-      active.strategy = best.strategy;
+      active.anchorStrategy = best.strategy;
       active.remount();
     }
   });
-  guard.observe(document.body, { childList: true, subtree: true });
+  sidebarObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 function teardown() {
-  guard?.disconnect();
-  guard = null;
+  sidebarObserver?.disconnect();
+  sidebarObserver = null;
   active?.remove();
   active = null;
 }

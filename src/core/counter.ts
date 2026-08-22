@@ -1,5 +1,6 @@
-import type { CommentSyntax } from './comment-syntax';
-import type { LineStats } from './types';
+import { syntaxFor, type CommentSyntax } from './comment-syntax';
+import type { FileResult } from './aggregate';
+import type { CountableFile, LineStats } from './types';
 
 /**
  * Line counting that distinguishes code from comments.
@@ -111,10 +112,7 @@ function longestOpener(line: string, index: number, syntax: CommentSyntax): Open
   return best;
 }
 
-/**
- * Classifies one line, mutating `state` for the next one.
- * Returns which kinds of content the line held.
- */
+/** Classifies one line, mutating `state` for the next one. */
 function scanLine(
   line: string,
   syntax: CommentSyntax,
@@ -182,15 +180,11 @@ function scanLine(
       continue;
     }
 
-    // Longest match wins across all opener kinds. This matters wherever one token is a
-    // prefix of another: Lua's `--` line comment versus its `--[[` block comment, or
-    // Python's `"` versus `"""`.
     const opener = longestOpener(line, i, syntax);
 
     if (opener) {
       switch (opener.kind) {
         case 'line':
-          // The rest of the line belongs to the comment.
           hasComment = true;
           return { hasCode, hasComment };
 
@@ -320,9 +314,25 @@ export class LineCounter {
   }
 }
 
-/** Convenience wrapper for counting a string in one go. */
-export function countLines(text: string, syntax: CommentSyntax | null): LineStats {
-  const counter = new LineCounter(syntax);
-  counter.push(text);
-  return counter.finish();
+/* ---------- Counting a file's bytes ---------- */
+
+const NUL_SCAN_BYTES = 8192;
+
+export interface CountFailure {
+  path: string;
+  reason: string;
+}
+
+/**
+ * Returns null for a binary file. A NUL byte near the start outranks the extension: an
+ * `.h` that is really a compiled header would otherwise decode to mojibake and silently
+ * inflate the counts rather than fail.
+ */
+export function countBytes(file: CountableFile, bytes: Uint8Array): FileResult | null {
+  const looksBinary = bytes.subarray(0, NUL_SCAN_BYTES).includes(0);
+  if (looksBinary) return null;
+
+  const counter = new LineCounter(syntaxFor(file.language));
+  counter.push(new TextDecoder('utf-8', { fatal: false }).decode(bytes));
+  return { ...file, stats: counter.finish() };
 }

@@ -1,6 +1,5 @@
 import { LANGUAGES } from './languages.generated';
 import type {
-  CountableFile,
   FileCategory,
   LanguageStats,
   LineStats,
@@ -8,7 +7,6 @@ import type {
   SkipReason,
 } from './types';
 
-/** The line counts for one counted file, as produced by the workers. */
 export interface FileResult {
   path: string;
   sha: string;
@@ -41,10 +39,8 @@ function accumulate(
 }
 
 /**
- * Rolls per-file results up into per-language totals.
- *
- * Languages Linguist folds into a parent (TSX into TypeScript, for instance) are merged,
- * matching how GitHub's own language bar groups them.
+ * Languages Linguist folds into a parent — TSX into TypeScript — are merged here, so the
+ * rows line up with how GitHub's own language bar groups them.
  */
 export function aggregate(
   results: FileResult[],
@@ -92,11 +88,9 @@ export function aggregate(
 }
 
 /**
- * Sums language rows into repository totals.
- *
- * Unlike the per-language rollup, a language with no comment data does not blank out the
- * repository comment total — it is simply left out of that one figure. Otherwise a single
- * file in an exotic language would erase an otherwise complete number.
+ * Unlike the per-language rollup, a language with no comment data is left out of the
+ * repository comment total rather than blanking it — otherwise one file in an exotic
+ * language would erase an otherwise complete number.
  */
 export function totalsOf(languages: LanguageStats[]): LineStats & { files: number; bytes: number } {
   const totals = emptyStats();
@@ -143,10 +137,7 @@ export function buildRepoStats(params: {
   };
 }
 
-/**
- * Recomputes totals for a subset of categories, so toggling "count tests" in the UI
- * needs no re-download.
- */
+/** Recomputed rather than re-counted, so toggling "count tests" costs nothing. */
 export function filterByCategory(
   languages: LanguageStats[],
   categories: FileCategory[],
@@ -179,7 +170,7 @@ export function filterByCategory(
   return filtered;
 }
 
-/** Percentage share of code lines per language, for the stacked bar. */
+/** Shares of *code* lines specifically, which is what the stacked bar plots. */
 export function sharesOf(languages: LanguageStats[]): Map<string, number> {
   const total = languages.reduce((sum, language) => sum + language.code, 0);
   const shares = new Map<string, number>();

@@ -23,33 +23,42 @@ export interface ClearCacheRequest {
 
 export type Request = PreviewRequest | CacheStatsRequest | ClearCacheRequest;
 
-/** What we can tell the user before committing to downloading anything. */
 export interface RepoPreview {
   branch: string;
   commitSha: string;
-  /** Files that survived filtering. */
+  /** Files that survived filtering, not files in the repository. */
   fileCount: number;
-  /** Total bytes of those files. */
+  /** Summed over those files. */
   totalBytes: number;
-  /** How many are already cached and need no download. */
+  /** Of those files, how many are already counted and will be skipped. */
   cachedCount: number;
-  /** Bytes actually left to download, after the cache. */
-  bytesToDownload: number;
+  /**
+   * Null when nothing needs downloading. Otherwise an estimate of the whole repository,
+   * vendored and binary files included, because the archive carries all of it — not the
+   * sum of the files worth counting, which would understate it badly.
+   */
+  archiveBytes: number | null;
   truncated: boolean;
-  /** Cached result for this exact commit, when one exists. */
+  /** A previous run of this exact commit, when one exists. */
   cached: RepoStats | null;
-  /** Remaining GitHub API budget, for the rate-limit hint. */
   rateLimit: { remaining: number; limit: number; resetAt: number } | null;
 }
 
-export type ErrorCode = 'rate-limit' | 'not-found' | 'network' | 'auth';
+export type ErrorCode =
+  | 'rate-limit'
+  | 'not-found'
+  | 'network'
+  | 'auth'
+  /** No token stored, or the stored one was rejected and has just been discarded. */
+  | 'no-token'
+  /** The token needs authorising for an SSO-protected organisation. */
+  | 'sso';
 
 export type Response<T> =
   | { ok: true; data: T }
   /** `resetAt` is epoch seconds, present for rate-limit errors. */
   | { ok: false; error: string; code?: ErrorCode; resetAt?: number };
 
-/** Sends a typed request to the background worker. */
 export async function sendRequest<T>(request: Request): Promise<Response<T>> {
   try {
     return (await browser.runtime.sendMessage(request)) as Response<T>;
@@ -73,7 +82,7 @@ export interface AnalyzeStart {
   force?: boolean;
 }
 
-export type AnalyzePhase = 'resolving' | 'listing' | 'counting' | 'done';
+export type AnalyzePhase = 'resolving' | 'listing' | 'counting';
 
 export type AnalyzeEvent =
   | { kind: 'progress'; phase: AnalyzePhase; done: number; total: number }

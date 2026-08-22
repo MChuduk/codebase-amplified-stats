@@ -1,18 +1,18 @@
 import { setToken } from './storage';
 
 /**
- * GitHub OAuth Device Flow.
- *
- * Device Flow is the only OAuth grant that needs no client secret, which is what makes it
- * usable from an extension with no backend — the client ID below is public by design.
- *
- * The token exists purely to raise the API rate limit from 60 to 5,000 requests an hour.
- * No scopes are requested: reading public repositories needs none.
- *
- * Setup: create an OAuth App at https://github.com/settings/developers, tick
- * "Enable Device Flow", and put its Client ID here.
+ * GitHub OAuth Device Flow — the only OAuth grant that needs no client secret, which is
+ * what makes it usable from an extension with no backend. The client ID is public by
+ * design and ships inside the bundle.
  */
 const CLIENT_ID = import.meta.env.WXT_GITHUB_CLIENT_ID ?? '';
+
+/**
+ * `repo` is the only classic OAuth scope that opens private repositories; GitHub offers no
+ * read-only variant, so its consent screen says "full control of private repositories"
+ * however little of that the extension uses.
+ */
+const SCOPE = 'repo';
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -56,8 +56,7 @@ export async function requestDeviceCode(): Promise<DeviceCode> {
   const response = await fetch(DEVICE_CODE_URL, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    // An empty scope is deliberate: we only need the higher rate limit.
-    body: JSON.stringify({ client_id: CLIENT_ID, scope: '' }),
+    body: JSON.stringify({ client_id: CLIENT_ID, scope: SCOPE }),
   });
 
   if (!response.ok) {
@@ -162,14 +161,28 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Confirms a stored token still works and reports who it belongs to. */
-export async function fetchViewer(token: string): Promise<{ login: string } | null> {
-  const response = await fetch('https://api.github.com/user', {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-  });
-  if (!response.ok) return null;
+/**
+ * `invalid` and `network` stay separate because callers discard the token on `invalid`.
+ * Collapsing them would sign the user out every time their connection blinked.
+ */
+export type TokenCheck = { login: string } | 'invalid' | 'network';
+
+export async function verifyToken(token: string): Promise<TokenCheck> {
+  let response: Response;
+  try {
+    response = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+  } catch {
+    return 'network';
+  }
+
+  const tokenWasRejected = response.status === 401 || response.status === 403;
+  if (tokenWasRejected) return 'invalid';
+  if (!response.ok) return 'network';
+
   const data = (await response.json()) as { login?: string };
-  return data.login ? { login: data.login } : null;
+  return data.login ? { login: data.login } : 'invalid';
 }
 
 export async function signOut(): Promise<void> {

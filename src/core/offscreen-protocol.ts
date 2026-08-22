@@ -1,5 +1,5 @@
 import type { FileResult } from './aggregate';
-import type { FetchFailure } from './fetch-count';
+import type { CountFailure } from './counter';
 import type { CountableFile, RepoRef } from './types';
 
 /** Messages between the background service worker and the offscreen worker host. */
@@ -11,28 +11,21 @@ export interface OffscreenRequest {
   repo: RepoRef;
   commitSha: string;
   files: CountableFile[];
-  /** Simultaneous requests per worker. Ignored on the tarball path. */
-  concurrency: number;
   /**
-   * Pull the whole repository as one archive instead of one request per file. The host
-   * reports this back on failure so the caller can retry the cheap way.
+   * A Web Worker has no access to extension storage, so the token travels with the job.
+   * The background is then the only place that ever reads it.
    */
-  tarball: boolean;
+  token: string;
 }
 
 export type OffscreenResponse =
   | {
       kind: 'completed';
-      failures: FetchFailure[];
+      failures: CountFailure[];
       /** Blob SHAs that turned out to be binary. */
       binaries: string[];
     }
-  | {
-      kind: 'failed';
-      message: string;
-      /** The archive path broke; the per-file path is untried and worth a go. */
-      tarballFailed?: boolean;
-    };
+  | { kind: 'failed'; message: string };
 
 /**
  * Progress pushed from the offscreen document back to the background worker.

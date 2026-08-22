@@ -120,6 +120,21 @@ function ErrorNotice({
   code?: string;
   resetAt?: number;
 }) {
+  if (code === "no-token") {
+    return (
+      <div className="space-y-2 text-xs">
+        <p className="gas-muted">{message}</p>
+        <button
+          type="button"
+          onClick={() => void browser.runtime.openOptionsPage()}
+          className="w-full cursor-pointer rounded-md border border-[var(--borderColor-default,#d1d9e0)] px-3 py-1.5 font-medium hover:bg-[var(--bgColor-muted,#f6f8fa)]"
+        >
+          Sign in with GitHub
+        </button>
+      </div>
+    );
+  }
+
   if (code === "rate-limit") {
     // Knowing when the budget comes back is the difference between "it is broken" and
     // "wait eight minutes".
@@ -130,23 +145,30 @@ function ErrorNotice({
     return (
       <div className="space-y-1 text-xs text-[var(--fgColor-danger,#d1242f)]">
         <p>
-          GitHub&apos;s anonymous API limit is spent
+          Your GitHub API budget is spent
           {minutes !== null && `; it resets in ${minutes} min`}.
         </p>
         <p className="gas-muted">
-          The limit is 60 requests an hour per IP address, and each repository costs three.
-          Signing in from the extension options raises it to 5,000.
+          A signed-in account gets 5,000 requests an hour, and each repository costs four.
+          Downloading the files does not touch this budget.
         </p>
       </div>
     );
   }
 
-  const text =
-    code === "not-found"
-      ? "This repository is private or unavailable. Only public repositories are supported."
-      : message;
+  if (code === "sso") {
+    return (
+      <div className="space-y-1 text-xs text-[var(--fgColor-danger,#d1242f)]">
+        <p>{message}</p>
+        <p className="gas-muted">
+          Open your GitHub authorised-apps settings and enable SSO for this extension on that
+          organisation, then try again.
+        </p>
+      </div>
+    );
+  }
 
-  return <p className="text-xs text-[var(--fgColor-danger,#d1242f)]">{text}</p>;
+  return <p className="text-xs text-[var(--fgColor-danger,#d1242f)]">{message}</p>;
 }
 
 function PreviewView({
@@ -156,16 +178,14 @@ function PreviewView({
   preview: RepoPreview;
   onRun: () => void;
 }) {
-  const remaining = preview.fileCount - preview.cachedCount;
-
   return (
     <div className="space-y-2">
       <p className="gas-muted text-xs">
         {formatCount(preview.fileCount)} files
         {preview.cachedCount > 0 &&
           ` · ${formatCount(preview.cachedCount)} already counted`}
-        {remaining > 0 &&
-          ` · ${formatBytes(preview.bytesToDownload)} to download`}
+        {preview.archiveBytes !== null &&
+          ` · ~${formatBytes(preview.archiveBytes)} archive to download`}
       </p>
 
       {preview.truncated && <TruncatedNotice />}
@@ -178,10 +198,10 @@ function PreviewView({
         Count lines
       </button>
 
-      {preview.rateLimit && preview.rateLimit.remaining < 20 && (
+      {preview.rateLimit && preview.rateLimit.remaining < 100 && (
         <p className="gas-muted text-xs">
           {preview.rateLimit.remaining} of {preview.rateLimit.limit} API requests left
-          this hour ({Math.floor(preview.rateLimit.remaining / 3)} more repositories).
+          this hour ({Math.floor(preview.rateLimit.remaining / 4)} more repositories).
         </p>
       )}
     </div>

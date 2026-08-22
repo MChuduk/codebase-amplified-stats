@@ -42,9 +42,8 @@ const RESERVED_OWNERS = new Set([
 ]);
 
 /**
- * Extracts owner/repo from a github.com URL, or returns null when the URL is not a
- * repository page. Sub-pages (`/tree/...`, `/issues`, ...) still resolve to the repo —
- * the panel should stay mounted while browsing within a repository.
+ * Sub-pages (`/tree/...`, `/issues`, ...) resolve to the repository too, so the panel
+ * stays mounted while browsing around inside one.
  */
 export function parseRepoUrl(url: string | URL): RepoRef | null {
   let parsed: URL;

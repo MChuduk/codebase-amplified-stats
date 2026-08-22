@@ -24,10 +24,6 @@ export type AnalysisState =
   | { status: 'stats'; stats: RepoStats; failures: number }
   | { status: 'error'; message: string; code?: ErrorCode; resetAt?: number };
 
-/**
- * Drives one repository's analysis: previews on mount, then runs the count on demand
- * over a port so progress streams in.
- */
 export function useAnalysis(repo: RepoRef) {
   const [state, setState] = useState<AnalysisState>({ status: 'loading' });
   const portRef = useRef<Browser.runtime.Port | null>(null);

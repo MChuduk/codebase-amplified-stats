@@ -1,13 +1,9 @@
 import type { RepoRef } from './types';
 
 /**
- * Streaming reader for GitHub's repository archives.
- *
- * Counting a large repository a file at a time means one HTTPS request per file — ten
- * thousand round trips for a repository of that size, which dwarfs the time spent
- * actually counting. GitHub will hand over the whole tree as a single `tar.gz` instead,
- * so this reads that one response, inflates it with the browser's own gzip decoder and
- * walks the archive without ever holding more than one file in memory.
+ * Streaming reader for GitHub's repository archives, the extension's only source of file
+ * contents. Nothing is buffered beyond the file currently being handed out, which keeps a
+ * multi-gigabyte repository a question of time rather than of memory.
  *
  * The tar format is simple enough that a parser is smaller than a dependency: 512-byte
  * headers, each followed by the file's bytes padded up to the next 512-byte boundary.
@@ -24,37 +20,16 @@ const TYPEFLAG_OFFSET = 156;
 const PREFIX_OFFSET = 345;
 const PREFIX_LENGTH = 155;
 
-/** Archive URL for a commit. Like `rawUrl`, this does not spend REST rate limit. */
-export function tarballUrl(repo: RepoRef, commitSha: string): string {
-  return `https://codeload.github.com/${repo.owner}/${repo.repo}/tar.gz/${commitSha}`;
-}
-
-/** Below this many files to fetch, thousands of round trips are not the problem yet. */
-const MIN_FILES = 400;
-/** The archive carries the whole repository, so it has to serve most of what is needed. */
-const MIN_SHARE = 0.5;
-/** Repository size in KB above which pulling everything at once is too much. */
-const MAX_SIZE_KB = 500_000;
-
 /**
- * Whether to pull the whole repository as one archive rather than a request per file.
- *
- * The archive is one round trip where the per-file path needs thousands, so on a cold
- * repository it wins by a wide margin — gzip more than pays for the files it carries and
- * we do not want. It is the wrong trade once most files are already counted, though: a
- * run that only needs the handful a new commit touched should just ask for those.
+ * The REST endpoint rather than `codeload.github.com` directly: it 302s to a signed
+ * codeload URL, and that redirect is the only documented route to a private repository's
+ * archive. `fetch` follows it and strips `Authorization` on the cross-origin hop, which is
+ * what we want — the signed URL carries its own credential.
  */
-export function shouldUseTarball(params: {
-  /** Files that still need downloading. */
-  toDownload: number;
-  /** Files in the repository worth counting at all. */
-  totalFiles: number;
-  /** Repository size in KB, as GitHub reports it. */
-  sizeKb: number;
-}): boolean {
-  if (params.toDownload < MIN_FILES) return false;
-  if (params.sizeKb > MAX_SIZE_KB) return false;
-  return params.toDownload / params.totalFiles > MIN_SHARE;
+export function tarballUrl(repo: RepoRef, commitSha: string): string {
+  const owner = encodeURIComponent(repo.owner);
+  const name = encodeURIComponent(repo.repo);
+  return `https://api.github.com/repos/${owner}/${name}/tarball/${commitSha}`;
 }
 
 export interface TarEntry {

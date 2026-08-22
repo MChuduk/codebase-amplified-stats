@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AuthError,
-  fetchViewer,
   isConfigured,
   pollForToken,
   requestDeviceCode,
   signOut,
+  verifyToken,
   type DeviceCode,
 } from '../core/auth';
 import { getSettings, getToken, saveSettings, type Settings } from '../core/storage';
@@ -48,35 +48,68 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function AccountSection() {
   const [login, setLogin] = useState<string | null>(null);
   const [device, setDevice] = useState<DeviceCode | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const signIn = useRef<AbortController | null>(null);
+
+  // Otherwise the poll loop outlives the page, with nobody left to receive the token.
+  useEffect(() => () => signIn.current?.abort(), []);
 
   useEffect(() => {
     void getToken().then(async (token) => {
       if (!token) return;
-      const viewer = await fetchViewer(token);
-      setLogin(viewer?.login ?? null);
-      // A token that no longer resolves to a user is dead weight.
-      if (!viewer) await signOut();
+
+      const check = await verifyToken(token);
+      if (check === 'invalid') {
+        await signOut();
+        return;
+      }
+      // Deliberately keeps the token: a dropped connection says nothing about it, and
+      // signing back in is a trip through GitHub.
+      if (check === 'network') {
+        setNotice('Could not reach GitHub to check your sign-in.');
+        return;
+      }
+
+      setLogin(check.login);
     });
   }, []);
 
   const startSignIn = async () => {
     setError(null);
+    setNotice(null);
     setBusy(true);
+
+    const controller = new AbortController();
+    signIn.current = controller;
+
     try {
       const code = await requestDeviceCode();
       setDevice(code);
+
+      // GitHub's page wants the code typed in; the clipboard turns that into one paste.
+      try {
+        await navigator.clipboard.writeText(code.userCode);
+        setCopied(true);
+      } catch {
+        setCopied(false);
+      }
+
       await browser.tabs.create({ url: code.verificationUri });
 
-      const token = await pollForToken(code);
-      const viewer = await fetchViewer(token);
-      setLogin(viewer?.login ?? 'signed in');
+      const token = await pollForToken(code, { signal: controller.signal });
+      const check = await verifyToken(token);
+      setLogin(typeof check === 'string' ? 'signed in' : check.login);
       setDevice(null);
     } catch (caught) {
-      setError(caught instanceof AuthError ? caught.message : String(caught));
+      const cancelled = caught instanceof AuthError && caught.code === 'cancelled';
+      if (!cancelled) setError(caught instanceof AuthError ? caught.message : String(caught));
       setDevice(null);
     } finally {
+      signIn.current = null;
       setBusy(false);
     }
   };
@@ -84,19 +117,27 @@ function AccountSection() {
   const handleSignOut = async () => {
     await signOut();
     setLogin(null);
+    setNotice(null);
   };
 
   return (
     <Section title="GitHub account">
       <p className="text-[var(--page-muted)]">
-        Signing in raises the GitHub API limit from 60 to 5,000 requests an hour. No permissions are
-        requested — the token only reads public data. File downloads never touch this limit.
+        Signing in is required: every request the extension makes is authenticated, which is what
+        lets it count any repository you can read, private ones included.
+      </p>
+      <p className="text-[var(--page-muted)]">
+        GitHub will ask you to grant the <code>repo</code> scope. There is no read-only version of
+        it — <code>repo</code> is the only classic OAuth scope that opens private repositories, so
+        the consent screen will mention write access. This extension only ever reads: it lists a
+        repository&apos;s files and downloads an archive of them. The token is stored in this
+        browser profile and is sent to GitHub and nowhere else.
       </p>
 
       {!isConfigured() && (
         <p className="rounded-md bg-[var(--page-subtle)] p-2 text-[var(--page-muted)]">
-          No OAuth client ID was set at build time, so sign-in is unavailable. The extension still
-          works at the anonymous 60 requests an hour.
+          This build has no OAuth client ID, so signing in is impossible and nothing will work.
+          Rebuild with <code>WXT_GITHUB_CLIENT_ID</code> set.
         </p>
       )}
 
@@ -112,14 +153,23 @@ function AccountSection() {
       ) : device ? (
         <div className="rounded-md bg-[var(--page-subtle)] p-3">
           <p>
-            Enter this code at{' '}
+            {copied ? 'Paste this code at ' : 'Enter this code at '}
             <a href={device.verificationUri} target="_blank" rel="noreferrer" className="text-[var(--page-accent)] underline">
               {device.verificationUri}
             </a>
             :
           </p>
           <p className="mt-2 font-mono text-2xl tracking-widest">{device.userCode}</p>
-          <p className="mt-2 text-[var(--page-muted)]">Waiting for authorisation…</p>
+          <p className="mt-2 text-[var(--page-muted)]">
+            {copied ? 'Copied to your clipboard. ' : ''}Waiting for authorisation…
+          </p>
+          <button
+            type="button"
+            onClick={() => signIn.current?.abort()}
+            className="mt-3 rounded-md border border-[var(--page-border)] px-3 py-1"
+          >
+            Cancel
+          </button>
         </div>
       ) : (
         <button
@@ -132,6 +182,7 @@ function AccountSection() {
         </button>
       )}
 
+      {notice && <p className="text-[var(--page-muted)]">{notice}</p>}
       {error && <p className="text-red-600 dark:text-red-400">{error}</p>}
     </Section>
   );

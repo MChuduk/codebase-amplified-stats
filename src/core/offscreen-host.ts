@@ -4,18 +4,14 @@ import type {
   OffscreenResponse,
 } from './offscreen-protocol';
 import type { FileResult } from './aggregate';
-import type { FetchFailure } from './fetch-count';
+import type { CountFailure } from './counter';
 import type { CountableFile, RepoRef } from './types';
 
 /** WXT flattens `entrypoints/offscreen/index.html` to `offscreen.html` in the output. */
 const OFFSCREEN_PATH = 'offscreen.html';
 
-/**
- * Ensures exactly one offscreen document exists.
- *
- * Chrome allows only one per extension and throws if you create a second, so concurrent
- * callers share a single in-flight creation promise.
- */
+/** Chrome allows one offscreen document per extension and throws on a second, so
+ *  concurrent callers share a single in-flight creation promise. */
 let creating: Promise<void> | null = null;
 
 async function ensureOffscreen(): Promise<void> {
@@ -52,26 +48,21 @@ export interface CountJobOptions {
   repo: RepoRef;
   commitSha: string;
   files: CountableFile[];
-  concurrency: number;
-  /** Pull the whole repository as one archive instead of a request per file. */
-  tarball: boolean;
+  /** Passed on to the offscreen document, which authenticates the archive request. */
+  token: string;
   onProgress?: (done: number, total: number) => void;
   /** Counted files, in batches, as the job produces them. */
   onResults?: (results: FileResult[]) => void;
 }
 
 export interface CountJobResult {
-  failures: FetchFailure[];
+  failures: CountFailure[];
   /** Blob SHAs that turned out to be binary. */
   binaries: string[];
 }
 
 export class CountJobError extends Error {
-  constructor(
-    message: string,
-    /** The archive path broke; the per-file path is untried and worth a go. */
-    readonly tarballFailed: boolean,
-  ) {
+  constructor(message: string) {
     super(message);
     this.name = 'CountJobError';
   }
@@ -113,16 +104,13 @@ export async function runCountJob(options: CountJobOptions): Promise<CountJobRes
       repo: options.repo,
       commitSha: options.commitSha,
       files: options.files,
-      concurrency: options.concurrency,
-      tarball: options.tarball,
+      token: options.token,
     };
 
     const response = (await browser.runtime.sendMessage(request)) as OffscreenResponse;
 
-    if (!response) throw new CountJobError('Offscreen document gave no response', options.tarball);
-    if (response.kind === 'failed') {
-      throw new CountJobError(response.message, response.tarballFailed ?? false);
-    }
+    if (!response) throw new CountJobError('Offscreen document gave no response');
+    if (response.kind === 'failed') throw new CountJobError(response.message);
 
     return { failures: response.failures, binaries: response.binaries };
   } finally {

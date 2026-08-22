@@ -1,8 +1,8 @@
-import type { BlobJob, FetchJob, WorkerMessage } from './counter.worker';
+import type { BlobJob, WorkerMessage } from './counter.worker';
 import type { FileResult } from '../../src/core/aggregate';
-import type { FetchFailure } from '../../src/core/fetch-count';
+import type { CountFailure } from '../../src/core/counter';
 import { readTarball, tarballUrl } from '../../src/core/tarball';
-import { getToken } from '../../src/core/storage';
+import { authHeaders } from '../../src/core/github-api';
 import type { CountableFile } from '../../src/core/types';
 import type {
   OffscreenProgress,
@@ -15,12 +15,13 @@ import type {
  *
  * This exists because an MV3 service worker cannot call `new Worker()`, and would in any
  * case risk being torn down mid-run. The offscreen document stays alive for exactly as
- * long as the job does.
+ * long as the job does. It also downloads and unpacks the archive, handing workers only
+ * the bytes of files worth counting.
  */
 
 const MAX_WORKERS = 8;
 
-/** Unpacked bytes handed to workers but not yet counted. Caps memory on the archive path. */
+/** Unpacked bytes handed to workers but not yet counted. Caps memory on a large archive. */
 const MAX_INFLIGHT_BYTES = 32 * 1024 * 1024;
 
 /** How often counted files are shipped back to the background worker. */
@@ -37,7 +38,6 @@ browser.runtime.onMessage.addListener(
       sendResponse({
         kind: 'failed',
         message: error instanceof Error ? error.message : String(error),
-        tarballFailed: request.tarball,
       }),
     );
 
@@ -49,20 +49,15 @@ async function runJob(request: OffscreenRequest): Promise<OffscreenResponse> {
   const reporter = new Reporter(request.jobId, request.files.length);
 
   try {
-    const outcome = request.tarball
-      ? await runTarballJob(request, reporter)
-      : await runFetchJob(request, reporter);
-
+    const outcome = await runTarballJob(request, reporter);
     await reporter.finish();
     return { kind: 'completed', ...outcome };
   } catch (error) {
-    // Ship what was counted before giving up; the caller keeps it and asks only for the
-    // rest, so a failed archive costs the work already done nothing.
+    // Ship what was counted before giving up; the caller banks it either way.
     await reporter.finish();
     return {
       kind: 'failed',
       message: error instanceof Error ? error.message : String(error),
-      tarballFailed: request.tarball,
     };
   }
 }
@@ -75,114 +70,22 @@ function poolSize(files: number): number {
   return Math.max(1, Math.min(MAX_WORKERS, navigator.hardwareConcurrency || 2, files));
 }
 
-/* ---------- Per-file path ---------- */
-
-async function runFetchJob(
-  request: OffscreenRequest,
-  reporter: Reporter,
-): Promise<{ failures: FetchFailure[]; binaries: string[] }> {
-  const shares = balance(request.files, poolSize(request.files.length));
-
-  const failures: FetchFailure[] = [];
-  const binaries: string[] = [];
-  const progressByWorker = new Array<number>(shares.length).fill(0);
-
-  const advance = () => {
-    reporter.setDone(progressByWorker.reduce((sum, value) => sum + value, 0));
-    reporter.maybeFlush();
-  };
-
-  await Promise.all(
-    shares.map(
-      (files, index) =>
-        new Promise<void>((resolve, reject) => {
-          const worker = spawnWorker();
-
-          worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-            const message = event.data;
-            switch (message.kind) {
-              case 'progress':
-                progressByWorker[index] = message.done;
-                reporter.add(message.results);
-                advance();
-                break;
-              case 'done':
-                reporter.add(message.results);
-                progressByWorker[index] = files.length;
-                advance();
-                failures.push(...message.failures);
-                binaries.push(...message.binaries);
-                worker.terminate();
-                resolve();
-                break;
-              case 'error':
-                worker.terminate();
-                reject(new Error(message.message));
-                break;
-            }
-          };
-
-          worker.onerror = (event) => {
-            worker.terminate();
-            reject(new Error(event.message || 'Worker crashed'));
-          };
-
-          const job: FetchJob = {
-            kind: 'job',
-            repo: request.repo,
-            commitSha: request.commitSha,
-            files,
-            concurrency: request.concurrency,
-          };
-          worker.postMessage(job);
-        }),
-    ),
-  );
-
-  return { failures, binaries };
-}
-
 /**
- * Splits files across workers by total bytes rather than count, so one worker landing on
- * all the large files does not hold up the run. Greedy longest-first bin packing.
- */
-function balance(files: CountableFile[], bins: number): CountableFile[][] {
-  const shares: CountableFile[][] = Array.from({ length: bins }, () => []);
-  const loads = new Array<number>(bins).fill(0);
-
-  for (const file of [...files].sort((a, b) => b.size - a.size)) {
-    let lightest = 0;
-    for (let i = 1; i < bins; i++) {
-      if (loads[i]! < loads[lightest]!) lightest = i;
-    }
-    shares[lightest]!.push(file);
-    loads[lightest]! += file.size;
-  }
-
-  return shares;
-}
-
-/* ---------- Archive path ---------- */
-
-/**
- * Counts from a single repository archive instead of a request per file.
- *
- * The tar is walked here on the host: unpacking is little more than arithmetic over
- * offsets, and gzip is inflated natively by the stream. Only the bytes of files we
- * actually want are assembled, and those go straight to a worker as a transferable.
+ * The tar is walked here rather than in a worker: unpacking is little more than arithmetic
+ * over offsets, and gzip is inflated natively by the stream. Only the bytes of wanted
+ * files are assembled, and those go straight to a worker as a transferable.
  */
 async function runTarballJob(
   request: OffscreenRequest,
   reporter: Reporter,
-): Promise<{ failures: FetchFailure[]; binaries: string[] }> {
+): Promise<{ failures: CountFailure[]; binaries: string[] }> {
   const wanted = new Map(request.files.map((file) => [file.path, file]));
-  const failures: FetchFailure[] = [];
+  const failures: CountFailure[] = [];
   const binaries: string[] = [];
   let done = 0;
 
-  const token = await getToken();
   const response = await fetch(tarballUrl(request.repo, request.commitSha), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: authHeaders(request.token),
   });
 
   if (!response.ok) throw new Error(`archive request failed with HTTP ${response.status}`);
@@ -253,7 +156,6 @@ class CounterPool {
     this.workers.forEach((worker, index) => {
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
         const message = event.data;
-        if (message.kind !== 'blob-done') return;
 
         this.load[index] = (this.load[index] ?? 1) - 1;
         const handler = this.handlers.get(message.id);

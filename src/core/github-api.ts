@@ -2,10 +2,19 @@ import type { RepoRef, TreeEntry } from './types';
 
 const API_BASE = 'https://api.github.com';
 
+export type GitHubErrorCode =
+  | 'rate-limit'
+  | 'not-found'
+  | 'auth'
+  /** The token is valid but not authorised for an SSO-protected organisation. */
+  | 'sso'
+  | 'network'
+  | 'server';
+
 export class GitHubApiError extends Error {
   constructor(
     message: string,
-    readonly code: 'rate-limit' | 'not-found' | 'auth' | 'network' | 'server',
+    readonly code: GitHubErrorCode,
     readonly status?: number,
     /** Epoch seconds when the rate limit resets, for `rate-limit` errors. */
     readonly resetAt?: number,
@@ -42,12 +51,16 @@ function readRateLimit(headers: Headers): void {
   }
 }
 
-async function request<T>(path: string, token: string | null): Promise<T> {
+export function authHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+async function request<T>(path: string, token: string): Promise<T> {
   const headers: Record<string, string> = {
+    ...authHeaders(token),
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   let response: Response;
   try {
@@ -63,14 +76,24 @@ async function request<T>(path: string, token: string | null): Promise<T> {
 
   if (response.ok) return (await response.json()) as T;
 
-  // A 403/429 with no remaining budget is rate limiting; a 403 with budget left is a
-  // genuine permission problem, and the two need different messages.
+  // GitHub overloads 403: out of budget, SSO not yet authorised, and plain refusal all
+  // arrive the same way, and the user can act on each of them differently.
   if (response.status === 403 || response.status === 429) {
-    const remaining = response.headers.get('x-ratelimit-remaining');
-    if (remaining === '0') {
+    const budgetExhausted = response.headers.get('x-ratelimit-remaining') === '0';
+    if (budgetExhausted) {
       const resetAt = Number(response.headers.get('x-ratelimit-reset') ?? 0);
       throw new GitHubApiError('GitHub API rate limit exceeded', 'rate-limit', response.status, resetAt);
     }
+
+    const needsSsoAuthorization = response.headers.get('x-github-sso') !== null;
+    if (needsSsoAuthorization) {
+      throw new GitHubApiError(
+        'This token has not been authorised for the organisation that owns this repository.',
+        'sso',
+        response.status,
+      );
+    }
+
     throw new GitHubApiError('Access denied by GitHub', 'auth', response.status);
   }
 
@@ -78,8 +101,15 @@ async function request<T>(path: string, token: string | null): Promise<T> {
     throw new GitHubApiError('GitHub token is invalid or expired', 'auth', 401);
   }
 
+  // 404 also means "your token cannot see it": GitHub hides a private repository's very
+  // existence, and an org with OAuth App access restrictions looks identical from here.
   if (response.status === 404) {
-    throw new GitHubApiError('Repository not found or is private', 'not-found', 404);
+    throw new GitHubApiError(
+      'Repository not found, or this token cannot read it. If it belongs to an ' +
+        'organisation, an owner may need to approve this extension’s OAuth app.',
+      'not-found',
+      404,
+    );
   }
 
   throw new GitHubApiError(`GitHub API returned ${response.status}`, 'server', response.status);
@@ -87,33 +117,24 @@ async function request<T>(path: string, token: string | null): Promise<T> {
 
 export interface RepoInfo {
   defaultBranch: string;
-  private: boolean;
   /** Repository size in KB, as reported by GitHub. */
   sizeKb: number;
-  fork: boolean;
 }
 
-export async function fetchRepoInfo(repo: RepoRef, token: string | null): Promise<RepoInfo> {
-  const data = await request<{
-    default_branch: string;
-    private: boolean;
-    size: number;
-    fork: boolean;
-  }>(`/repos/${repo.owner}/${repo.repo}`, token);
+export async function fetchRepoInfo(repo: RepoRef, token: string): Promise<RepoInfo> {
+  const data = await request<{ default_branch: string; size: number }>(
+    `/repos/${repo.owner}/${repo.repo}`,
+    token,
+  );
 
-  return {
-    defaultBranch: data.default_branch,
-    private: data.private,
-    sizeKb: data.size,
-    fork: data.fork,
-  };
+  return { defaultBranch: data.default_branch, sizeKb: data.size };
 }
 
 /** Resolves a branch name to the commit SHA it points at — our cache key. */
 export async function fetchCommitSha(
   repo: RepoRef,
   branch: string,
-  token: string | null,
+  token: string,
 ): Promise<string> {
   const data = await request<{ sha: string }>(
     `/repos/${repo.owner}/${repo.repo}/commits/${encodeURIComponent(branch)}`,
@@ -135,7 +156,7 @@ export interface TreeResult {
 export async function fetchTree(
   repo: RepoRef,
   commitSha: string,
-  token: string | null,
+  token: string,
 ): Promise<TreeResult> {
   const data = await request<{ tree: TreeEntry[]; truncated: boolean }>(
     `/repos/${repo.owner}/${repo.repo}/git/trees/${commitSha}?recursive=1`,
@@ -144,11 +165,3 @@ export async function fetchTree(
   return { entries: data.tree, truncated: data.truncated };
 }
 
-/**
- * Raw file URL on GitHub's CDN. Requests here do *not* count against the REST API rate
- * limit, which is what makes downloading thousands of files viable. Public repos only.
- */
-export function rawUrl(repo: RepoRef, commitSha: string, path: string): string {
-  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-  return `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${commitSha}/${encodedPath}`;
-}

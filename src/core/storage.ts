@@ -22,8 +22,8 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /**
  * True at most once a day, and stamps the clock as a side effect.
  *
- * Kept here rather than in the cache so the cache stays free of extension storage, and
- * survives service-worker restarts, which an in-memory flag would not.
+ * Lives here rather than in the cache so the cache stays free of extension storage, and
+ * so the stamp survives service-worker restarts, which an in-memory flag would not.
  */
 export async function claimCacheCleanup(): Promise<boolean> {
   const stored = await browser.storage.local.get(CLEANUP_KEY);

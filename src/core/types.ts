@@ -1,24 +1,20 @@
-/** Repository coordinates parsed out of a github.com URL. */
 export interface RepoRef {
   owner: string;
   repo: string;
 }
 
-/** How Linguist classifies a language. We count `programming` and `markup` by default. */
+/** Linguist's own classification. Only `programming` and `markup` are counted by default. */
 export type LanguageType = 'programming' | 'markup' | 'data' | 'prose';
 
 export interface LanguageMeta {
   type: LanguageType;
-  /** Linguist's hex colour, e.g. `#3572A5`. Absent for languages Linguist gives no colour. */
+  /** Hex, as Linguist writes it: `#3572A5`. */
   color: string | null;
-  /**
-   * Parent language, when Linguist folds this one into another for statistics —
-   * e.g. TSX into TypeScript. Null for standalone languages.
-   */
+  /** Set when Linguist folds this language into another for statistics — TSX into TypeScript. */
   group: string | null;
 }
 
-/** A single blob entry from the Git Trees API, narrowed to what we need. */
+/** An entry from the Git Trees API, narrowed to the fields we use. */
 export interface TreeEntry {
   path: string;
   /** Git file mode: `100644`, `100755`, `120000` (symlink), `160000` (submodule). */
@@ -29,7 +25,7 @@ export interface TreeEntry {
   size?: number;
 }
 
-/** Why a file was excluded from the count. Surfaced in the UI so the number is explainable. */
+/** Every exclusion carries one of these, so the panel can always explain its numbers. */
 export type SkipReason =
   | 'not-a-file'
   | 'vendored'
@@ -45,7 +41,6 @@ export type SkipReason =
  */
 export type FileCategory = 'code' | 'test' | 'docs' | 'data';
 
-/** A file that survived filtering and will be counted. */
 export interface CountableFile {
   path: string;
   sha: string;
@@ -54,24 +49,15 @@ export interface CountableFile {
   category: FileCategory;
 }
 
-export interface SkippedFile {
-  path: string;
-  reason: SkipReason;
-  /** The rule that matched, for debugging — e.g. the vendor pattern source. */
-  detail?: string;
-}
-
 export interface FilterResult {
   files: CountableFile[];
-  skipped: SkippedFile[];
-  /** Counts per reason, for the "excluded N files" breakdown. */
   skippedByReason: Record<SkipReason, number>;
-  /** Sum of `size` over `files` — used to warn about download volume before starting. */
+  /** Summed over `files`, so it excludes everything filtering dropped. */
   totalBytes: number;
 }
 
 export interface FilterOptions {
-  /** Files above this size are almost always generated dumps. Default 1 MiB. */
+  /** Files above this size are almost always generated dumps. */
   maxFileSize: number;
   /**
    * Categories to download and count. Everything except `code` is optional, but note
@@ -79,7 +65,7 @@ export interface FilterOptions {
    * re-download — the UI keeps all four and filters at display time instead.
    */
   include: FileCategory[];
-  /** Extra path prefixes to exclude, from user settings. */
+  /** Path prefixes the user chose to exclude, on top of the built-in rules. */
   excludePaths: string[];
 }
 
@@ -89,7 +75,6 @@ export const DEFAULT_FILTER_OPTIONS: FilterOptions = {
   excludePaths: [],
 };
 
-/** Line counts for one file or one aggregated language. */
 export interface LineStats {
   total: number;
   blank: number;
@@ -115,9 +100,9 @@ export interface RepoStats {
   languages: LanguageStats[];
   totals: LineStats & { files: number; bytes: number };
   skippedByReason: Record<SkipReason, number>;
-  /** True when the Git tree was truncated by the API and the result is incomplete. */
+  /** The Git tree hit the API's 100k-entry cap, so these totals are a lower bound. */
   truncated: boolean;
-  /** True when the run stopped early (rate limiting, network) and the result is partial. */
+  /** Some files failed to count, so these totals are a lower bound. */
   partial: boolean;
   /** Epoch millis. */
   computedAt: number;

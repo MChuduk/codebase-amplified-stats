@@ -13,9 +13,7 @@
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
     "postinstall": "wxt prepare",
-    "gen:languages": "tsx scripts/gen-languages.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "gen:languages": "tsx scripts/gen-languages.ts"
   },
   "dependencies": {
     "idb": "^8.0.3",
@@ -27,12 +25,9 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@wxt-dev/module-react": "^1.2.2",
-    "fake-indexeddb": "^6.2.5",
-    "playwright": "^1.62.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.10",
     "wxt": "^0.21.1",
     "yaml": "^2.7.0"
   },

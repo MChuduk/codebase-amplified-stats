@@ -21,7 +21,6 @@ interface Rule {
     /** Exact filenames whose presence implies this language. */
     filenames?: string[];
   }>;
-  /** Used when no candidate matched. */
   fallback: string;
 }
 
@@ -117,10 +116,7 @@ export interface DisambiguationResult {
   notes: DisambiguationNote[];
 }
 
-/**
- * Reassigns languages for ambiguous extensions based on what else the repository
- * contains. Returns the same files with `language` corrected where a rule applied.
- */
+/** Returns the same files, with `language` corrected wherever a rule applied. */
 export function disambiguate(files: CountableFile[]): DisambiguationResult {
   const presentExtensions = new Set<string>();
   const presentFilenames = new Set<string>();

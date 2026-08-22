@@ -1,6 +1,7 @@
 # GitHub Amplified Stats
 
-A Chrome extension that shows **real lines of code per language** on a GitHub repository page.
+A Chrome extension that shows **real lines of code per language** on a GitHub repository
+page — public or private, any repository you can read.
 
 GitHub's own language bar measures **bytes**, not lines, and counts every file Linguist
 recognises. A minified vendor bundle, a generated protobuf or a lock file can dominate the
@@ -20,22 +21,25 @@ GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1
         ↓  one request, the entire file listing
    FILTER  vendored / generated / binary / unrecognised / oversized
         ↓  typically removes 60–95% of files
-   CACHE   already counted this blob SHA? then skip it
+   CACHE   already counted this blob SHA? then skip counting it
         ↓
-   FETCH   raw.githubusercontent.com, in parallel across Web Workers
-        ↓  counted as it streams; file contents are never held in memory
+GET /repos/{owner}/{repo}/tarball/{sha}
+        ↓  one gzipped archive, unpacked as it streams
+   COUNT   each file's bytes handed to a Web Worker
+        ↓  never more than one file in memory at a time
    AGGREGATE per language → rendered into the sidebar
 ```
 
 Two things make this practical:
 
-**`raw.githubusercontent.com` does not consume the REST API quota.** A repository costs
-exactly **three API requests**; the thousands of file downloads are free of the limit. That
-is why counting a large repository does not exhaust a 60-request anonymous budget.
+**One archive instead of thousands of requests.** A repository costs exactly **four API
+requests** no matter how many files it has. The archive endpoint answers with a redirect to
+a signed CDN URL, which is also the only documented way to reach a private repository's
+contents — so public and private repositories take exactly the same path.
 
 **The cache is keyed by Git blob SHA — a hash of file contents.** A file that has not
-changed is never downloaded twice, across commits, branches, and even forks. Pushing one
-commit re-counts only what that commit touched.
+changed is never counted twice, across commits, branches, and even forks. The archive is
+skipped entirely when every file in a commit has already been counted.
 
 ## Accuracy
 
@@ -73,7 +77,7 @@ itself, plus path rules for generated output:
 
 - **Vendored** — `node_modules/`, `vendor/`, `dist/`, `third_party/`, `.github/`, and 160+ more
 - **Generated** — lock files, `*.pb.go`, `*_pb2.py`, `*.min.js`, `__snapshots__/`, `*.designer.cs`
-- **Binary** — by extension, plus a NUL-byte check while downloading
+- **Binary** — by extension, plus a NUL-byte check on the bytes themselves
 - **Oversized** — above 1 MB by default; these are almost always generated dumps
 
 The panel always reports how many files were excluded and why. A number you cannot explain
@@ -84,46 +88,51 @@ toggle them in the panel without re-downloading anything.
 
 ## Install
 
+An OAuth App is required — every request the extension makes is authenticated, so a build
+without a client ID is useless and `pnpm build` refuses to produce one.
+
+1. Create an OAuth App at <https://github.com/settings/developers> and tick
+   **Enable Device Flow**. No callback URL is needed.
+2. Build with its Client ID:
+
 ```bash
 pnpm install
-pnpm build          # output in .output/chrome-mv3
+WXT_GITHUB_CLIENT_ID=your_client_id pnpm build     # output in .output/chrome-mv3
 ```
 
-Load `.output/chrome-mv3` at `chrome://extensions` with developer mode on.
+Load `.output/chrome-mv3` at `chrome://extensions` with developer mode on, open the
+extension's options and click **Sign in with GitHub**. The code is copied to your clipboard;
+paste it on the page that opens and authorise.
 
-For development with hot reload:
+For development with hot reload (this one only warns when the client ID is missing, so the
+rest of the extension stays workable):
 
 ```bash
-pnpm dev
+WXT_GITHUB_CLIENT_ID=your_client_id pnpm dev
 ```
 
-### Optional: raising the rate limit
-
-Anonymous use gets 60 API requests an hour — about 20 repositories. Signing in raises that
-to 5,000. To enable sign-in, create an OAuth App at
-<https://github.com/settings/developers>, tick **Enable Device Flow**, and build with:
-
-```bash
-WXT_GITHUB_CLIENT_ID=your_client_id pnpm build
-```
+### About the token
 
 Device Flow is the only OAuth grant that needs no client secret, which is what makes it
-safe to use from an extension with no backend. No scopes are requested — the token only
-reads public data.
+usable from an extension with no backend — the client ID is public by design.
+
+GitHub will ask for the **`repo`** scope, and its consent screen will describe that as full
+control of private repositories. That is GitHub's wording, not a description of what this
+extension does: `repo` is the only classic OAuth scope that opens private repositories at
+all, and GitHub offers no read-only variant. The extension only ever reads — it lists a
+repository's files and downloads an archive of them. The token is kept in this browser
+profile's extension storage and is sent to GitHub and nowhere else.
 
 ## Development
 
 ```bash
-pnpm test              # unit tests for the counter, filter and aggregation
-pnpm compile           # type check
+pnpm compile           # type check — the only automated check there is
 pnpm gen:languages     # regenerate language data from Linguist
-npx tsx scripts/browser-check.mts   # end-to-end check in a real Chromium
 ```
 
-`scripts/browser-check.mts` loads the built extension into Chromium, opens a repository,
-clicks through a full count and reports where the panel landed in the sidebar. Run it after
-any change to the DOM integration — GitHub's markup is not a public API and shifts without
-notice.
+There are no tests at present. That is a deliberate, temporary state: verification is
+manual. Take particular care with `src/core/counter.ts` and `src/core/tarball.ts` — a
+regression in either produces numbers that look plausible and are wrong.
 
 ### Layout
 
@@ -131,17 +140,22 @@ notice.
 entrypoints/
   github.content/    content script — mounts the panel into the sidebar
   background.ts      orchestrator: resolve → filter → cache → count
-  offscreen/         worker host (an MV3 service worker cannot spawn Workers)
+  offscreen/         downloads and unpacks the archive; hosts the counting Workers
   options/           settings, sign-in, cache management
-src/core/            counting engine, GitHub client, filter, cache — no DOM
+src/core/            counting engine, GitHub client, filter, tar reader, cache — no DOM
 src/ui/              React components
-scripts/             language-data generator, browser check
+scripts/             language-data generator
 ```
 
 ## Known limits
 
-- **Public repositories only.** Private repos would need `raw.githubusercontent.com` to be
-  replaced with GraphQL batching and a broad `repo` OAuth scope.
+- **Organisation policy.** If an organisation has OAuth App access restrictions enabled, an
+  owner has to approve this app before its private repositories are visible; until then they
+  look like 404s. Repositories behind SAML SSO need the token authorised for that
+  organisation. The panel names both cases when it hits them.
+- **A new commit means a fresh download.** Results are cached per commit, and line counts
+  are cached per file-content hash — so re-counting is fast — but the archive itself is
+  fetched again whenever the commit changes.
 - **Very large repositories.** Above 100k files GitHub truncates the tree listing; the panel
   says so and reports a lower bound.
 - **YAML block scalars.** A `#` inside a `|` block is counted as a comment. Roughly −2% on
