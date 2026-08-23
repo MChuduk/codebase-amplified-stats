@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { colorFor, sharesOf, totalsOf } from '../logic/aggregate';
+import { colorFor, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
 import type { RepoStats } from '../logic/interfaces';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
@@ -148,7 +148,6 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
 
   const { languages } = stats;
   const totals = useMemo(() => totalsOf(languages), [languages]);
-  const shares = useMemo(() => sharesOf(languages), [languages]);
 
   const visible = expanded ? languages : languages.slice(0, 8);
 
@@ -159,19 +158,6 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
   return (
     <div className="space-y-2">
       <p className="text-xl font-semibold tabular-nums">{formatCount(totals.code)}</p>
-
-      <div className="flex h-2 w-full overflow-hidden rounded-full">
-        {languages.map((language) => (
-          <span
-            key={language.language}
-            title={`${language.language} ${formatCount(language.code)}`}
-            style={{
-              width: `${shares.get(language.language) ?? 0}%`,
-              backgroundColor: colorFor(language.language, language.color),
-            }}
-          />
-        ))}
-      </div>
 
       <table className="w-full text-xs tabular-nums">
         <tbody>

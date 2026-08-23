@@ -120,17 +120,6 @@ export function buildRepoStats(params: {
   };
 }
 
-/** Shares of *code* lines specifically, which is what the stacked bar plots. */
-export function sharesOf(languages: LanguageStats[]): Map<string, number> {
-  const total = languages.reduce((sum, language) => sum + language.code, 0);
-  const shares = new Map<string, number>();
-  if (total === 0) return shares;
-  for (const language of languages) {
-    shares.set(language.language, (language.code / total) * 100);
-  }
-  return shares;
-}
-
 /**
  * A stable colour for languages Linguist gives none, derived from the name so the same
  * language always looks the same.
