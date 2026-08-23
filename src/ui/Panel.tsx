@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
 import { colorFor, filterByCategory, sharesOf, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
-import type { FileCategory, LanguageStats, RepoStats, SkipReason } from '../logic/interfaces';
+import type { FileCategory, RepoStats, SkipReason } from '../logic/interfaces';
 import type { RepoPreview } from '../messaging/messages';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
-import { exportCsv, exportJson } from './export';
 import { formatBytes, formatCount, formatPercent } from './format';
 
 const CATEGORY_LABELS: Record<FileCategory, string> = {
@@ -355,7 +354,7 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
         </button>
       </div>
 
-      <Footnotes stats={stats} failures={failures} languages={languages} />
+      <Footnotes stats={stats} failures={failures} />
     </div>
   );
 }
@@ -386,15 +385,7 @@ function SortHeader({
   );
 }
 
-function Footnotes({
-  stats,
-  failures,
-  languages,
-}: {
-  stats: RepoStats;
-  failures: number;
-  languages: LanguageStats[];
-}) {
+function Footnotes({ stats, failures }: { stats: RepoStats; failures: number }) {
   const [open, setOpen] = useState(false);
 
   const skipped = Object.entries(stats.skippedByReason).filter(([, count]) => count > 0);
@@ -427,24 +418,6 @@ function Footnotes({
           )}
         </>
       )}
-
-      <p className="flex gap-2 pt-0.5">
-        <span>Export</span>
-        <button
-          type="button"
-          onClick={() => exportJson(stats, languages)}
-          className="cursor-pointer hover:underline"
-        >
-          JSON
-        </button>
-        <button
-          type="button"
-          onClick={() => exportCsv(stats, languages)}
-          className="cursor-pointer hover:underline"
-        >
-          CSV
-        </button>
-      </p>
     </div>
   );
 }
