@@ -1,20 +1,10 @@
 import { useMemo, useState } from 'react';
 import { colorFor, sharesOf, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
-import type { RepoStats, SkipReason } from '../logic/interfaces';
+import type { RepoStats } from '../logic/interfaces';
 import type { RepoPreview } from '../messaging/messages';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
-import { formatBytes, formatCount, formatPercent } from './format';
-
-const SKIP_LABELS: Record<SkipReason, string> = {
-  'not-a-file': 'empty or not a file',
-  vendored: 'vendored',
-  generated: 'generated',
-  binary: 'binary',
-  'unknown-language': 'unrecognised',
-  'excluded-type': 'excluded',
-  'too-large': 'too large',
-};
+import { formatBytes, formatCount } from './format';
 
 export function Panel({ repo }: { repo: RepoRef }) {
   const { state, run } = useAnalysis(repo);
@@ -212,7 +202,7 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
         {languages.map((language) => (
           <span
             key={language.language}
-            title={`${language.language} ${formatPercent(shares.get(language.language) ?? 0)}`}
+            title={`${language.language} ${formatCount(language.code)}`}
             style={{
               width: `${shares.get(language.language) ?? 0}%`,
               backgroundColor: colorFor(language.language, language.color),
@@ -236,10 +226,7 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
                   <span className="truncate">{language.language}</span>
                 </span>
               </td>
-              <td className="py-0.5 pr-2 text-right font-medium">{formatCount(language.code)}</td>
-              <td className="gas-muted py-0.5 text-right">
-                {formatPercent(shares.get(language.language) ?? 0)}
-              </td>
+              <td className="py-0.5 text-right font-medium">{formatCount(language.code)}</td>
             </tr>
           ))}
         </tbody>
@@ -261,38 +248,10 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
 }
 
 function Footnotes({ stats, failures }: { stats: RepoStats; failures: number }) {
-  const [open, setOpen] = useState(false);
-
-  const skipped = Object.entries(stats.skippedByReason).filter(([, count]) => count > 0);
-  const skippedTotal = skipped.reduce((sum, [, count]) => sum + count, 0);
-
   return (
     <div className="gas-muted space-y-1 text-xs">
       {stats.truncated && <TruncatedNotice />}
       {failures > 0 && <p>{formatCount(failures)} files could not be downloaded.</p>}
-
-      {skippedTotal > 0 && (
-        <>
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="cursor-pointer hover:underline"
-          >
-            {formatCount(skippedTotal)} files excluded
-          </button>
-          {open && (
-            <ul className="pl-3">
-              {skipped
-                .sort((a, b) => b[1] - a[1])
-                .map(([reason, count]) => (
-                  <li key={reason}>
-                    {formatCount(count)} {SKIP_LABELS[reason as SkipReason]}
-                  </li>
-                ))}
-            </ul>
-          )}
-        </>
-      )}
     </div>
   );
 }

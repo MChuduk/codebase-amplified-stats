@@ -15,8 +15,3 @@ export function formatBytes(bytes: number): string {
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
-
-export function formatPercent(value: number): string {
-  if (value > 0 && value < 0.1) return '<0.1%';
-  return `${value.toFixed(1)}%`;
-}
