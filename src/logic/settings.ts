@@ -52,6 +52,19 @@ export async function getToken(provider: ProviderId): Promise<string | null> {
   return (await readTokens())[provider] ?? null;
 }
 
+/**
+ * Notifies on any sign-in or sign-out, without ever handing out the token: callers outside
+ * the background — the panel's mounting, above all — must not see its value.
+ */
+export function onTokensChanged(listener: () => void): () => void {
+  const handler = (changes: Record<string, unknown>) => {
+    if (TOKENS_KEY in changes) listener();
+  };
+
+  browser.storage.local.onChanged.addListener(handler);
+  return () => browser.storage.local.onChanged.removeListener(handler);
+}
+
 export async function setToken(provider: ProviderId, token: string | null): Promise<void> {
   const tokens = await readTokens();
   if (token) tokens[provider] = token;

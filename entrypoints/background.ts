@@ -17,17 +17,20 @@ import * as cache from '../src/logic/cache';
 import { claimCacheCleanup, getSettings, getToken, setToken } from '../src/logic/settings';
 import type { CountableFile } from '../src/logic/interfaces';
 
-/** Thrown before any request goes out when there is no token to make one with. */
+/**
+ * Thrown before any request goes out when there is no token to make one with. Its message
+ * never reaches the user: the panel does not mount for a signed-out one at all.
+ */
 class NoTokenError extends Error {
-  constructor(label: string) {
-    super(`Sign in to ${label} from the extension options to count repositories.`);
+  constructor() {
+    super('Not signed in');
     this.name = 'NoTokenError';
   }
 }
 
 async function requireToken(repo: RepoRef): Promise<string> {
   const token = await getToken(repo.provider);
-  if (!token) throw new NoTokenError(providerFor(repo.provider).label);
+  if (!token) throw new NoTokenError();
   return token;
 }
 
@@ -113,6 +116,8 @@ async function handle(request: Request): Promise<unknown> {
       return cache.cacheStats();
     case 'clear-cache':
       return cache.clearCache();
+    case 'signed-in':
+      return (await getToken(request.provider)) !== null;
   }
 }
 

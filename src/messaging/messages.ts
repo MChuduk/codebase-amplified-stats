@@ -1,4 +1,4 @@
-import type { RepoRef } from '../common';
+import type { ProviderId, RepoRef } from '../common';
 import type { RepoStats } from '../logic/interfaces';
 
 /**
@@ -17,7 +17,16 @@ export interface ClearCacheRequest {
   kind: 'clear-cache';
 }
 
-export type Request = CacheStatsRequest | ClearCacheRequest;
+/**
+ * Whether a token is stored for a host — answered by the background, which is the only
+ * place the token itself is ever read.
+ */
+export interface SignedInRequest {
+  kind: 'signed-in';
+  provider: ProviderId;
+}
+
+export type Request = CacheStatsRequest | ClearCacheRequest | SignedInRequest;
 
 export type ErrorCode =
   | 'rate-limit'

@@ -8,6 +8,10 @@ import { formatCount } from './format';
 export function Panel({ repo }: { repo: RepoRef }) {
   const { state, run } = useAnalysis(repo);
 
+  // A signed-out user gets no panel at all: mounting already checks for a token, and this
+  // covers the token being discarded mid-run, which unmounts a moment later.
+  if (state.status === 'error' && state.code === 'no-token') return null;
+
   return (
     <div className="gas-panel">
       <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -61,21 +65,6 @@ function ErrorNotice({
   code?: string;
   resetAt?: number;
 }) {
-  if (code === 'no-token') {
-    return (
-      <div className="space-y-2 text-xs">
-        <p className="gas-muted">{message}</p>
-        <button
-          type="button"
-          onClick={() => void browser.runtime.openOptionsPage()}
-          className="w-full cursor-pointer rounded-md border border-[var(--borderColor-default,#d1d9e0)] px-3 py-1.5 font-medium hover:bg-[var(--bgColor-muted,#f6f8fa)]"
-        >
-          Sign in with GitHub
-        </button>
-      </div>
-    );
-  }
-
   if (code === 'rate-limit') {
     // Knowing when the budget comes back is the difference between "it is broken" and
     // "wait eight minutes".

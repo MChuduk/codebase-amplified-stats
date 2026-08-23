@@ -1,6 +1,8 @@
 import type { ContentScriptContext } from '#imports';
 import ReactDOM from 'react-dom/client';
 import type { Provider } from '../common';
+import { sendRequest } from '../messaging/messages';
+import { onTokensChanged } from '../logic/settings';
 import { Panel } from './Panel';
 
 /**
@@ -27,6 +29,7 @@ interface ActiveUi {
 let active: ActiveUi | null = null;
 let pendingMount: AbortController | null = null;
 let sidebarObserver: MutationObserver | null = null;
+let stopTokenWatch: (() => void) | null = null;
 
 /**
  * Mounts the panel, and keeps it mounted.
@@ -39,6 +42,9 @@ let sidebarObserver: MutationObserver | null = null;
  * change is announced before the navigation commits, so `location.href` still names the
  * page being left and neither the URL nor the DOM can be trusted to describe the target
  * yet. The anchor is waited for, so arriving before the new page renders is fine.
+ *
+ * Nothing is mounted while the user is signed out: every request the engine makes is
+ * authenticated, so a panel there could only ever say so.
  */
 export async function mountPanel(
   ctx: ContentScriptContext,
@@ -57,6 +63,15 @@ export async function mountPanel(
   const repo = provider.parseRepoUrl(url);
   // The sidebar only exists on the landing page; other sub-pages have nowhere to put it.
   if (!repo || !provider.isRepoHomePage(url)) return;
+
+  // Signing in from the options page has to bring the panel up without a page reload, and
+  // a token the host rejects mid-run has to take it away again.
+  stopTokenWatch = onTokensChanged(() => {
+    void mountPanel(ctx, provider, anchor, new URL(location.href));
+  });
+
+  if (!(await isSignedIn(provider))) return;
+  if (signal.aborted || !ctx.isValid) return;
 
   const found = await anchor.waitForAnchor(signal);
   if (signal.aborted || !ctx.isValid) return;
@@ -141,8 +156,15 @@ export async function mountPanel(
 }
 
 export function unmountPanel() {
+  stopTokenWatch?.();
+  stopTokenWatch = null;
   sidebarObserver?.disconnect();
   sidebarObserver = null;
   active?.remove();
   active = null;
+}
+
+async function isSignedIn(provider: Provider): Promise<boolean> {
+  const response = await sendRequest<boolean>({ kind: 'signed-in', provider: provider.id });
+  return response.ok && response.data;
 }
