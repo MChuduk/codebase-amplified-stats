@@ -69,7 +69,7 @@ methods for behaviour no implementation has yet is how it ends up fitting nothin
 
 ### Two message protocols
 
-- **Request/response** (`sendMessage`) for `preview`, `cache-stats`, `clear-cache` — see
+- **Request/response** (`sendMessage`) for `cache-stats`, `clear-cache` — see
   [src/messaging/messages.ts](src/messaging/messages.ts).
 - **Long-lived port** (`ANALYZE_PORT`) for a counting run. This is not a style choice: an
   open port keeps the service worker alive for the duration of the job, which a
@@ -81,6 +81,10 @@ listener ignores anything with `target` present, and vice versa. Offscreen → b
 progress batches are acknowledged so they stay ordered.
 
 ### The counting pipeline
+
+A run starts on its own when the panel mounts on a repository landing page — there is no
+"count" button. The `repoRuns` and `blobStats` caches are what keep that affordable, and a
+cached commit answers without any download at all.
 
 4 API calls per repo — `/repos`, `/commits/HEAD`, `/git/trees?recursive=1`, then
 `/repos/{o}/{r}/tarball/{sha}`. [filterTree](src/logic/filter.ts) drops
@@ -110,8 +114,8 @@ The archive is skipped entirely when `blobStats` already covers every file in th
 - **`repoRuns` (IndexedDB)** whole results per `owner/repo@commit` — instant revisits. Note
   the consequence: a **new commit means the whole archive is downloaded again**.
 - **`resolveCache` (in-memory, 10 min)** in the background, storing the _promise_ so
-  concurrent callers share one set of API requests. Without it, opening a page, clicking
-  Count, and each panel re-mount each spent 3 requests re-learning the same commit SHA.
+  concurrent callers share one set of API requests. Without it, every panel re-mount spent
+  3 requests re-learning the same commit SHA — and GitHub re-renders its sidebar often.
   `force` (Refresh) bypasses `resolveCache` and `repoRuns`, but deliberately **not**
   `blobStats` — a blob SHA hashes contents, so a cached count for one is correct by
   construction.

@@ -1,20 +1,11 @@
 import type { ProviderId } from '../common';
 import type { FilterOptions } from './interfaces';
 
-export interface Settings extends FilterOptions {
-  /** Start counting automatically instead of waiting for a click. Off by default —
-   *  downloading megabytes on someone's behalf should be a deliberate act. */
-  autoAnalyze: boolean;
-}
-
-const DEFAULT_FILTER_OPTIONS: FilterOptions = {
-  maxFileSize: 1024 * 1024,
-  excludePaths: [],
-};
+export type Settings = FilterOptions;
 
 export const DEFAULT_SETTINGS: Settings = {
-  ...DEFAULT_FILTER_OPTIONS,
-  autoAnalyze: false,
+  maxFileSize: 1024 * 1024,
+  excludePaths: [],
 };
 
 const SETTINGS_KEY = 'settings';

@@ -2,9 +2,8 @@ import { useMemo, useState } from 'react';
 import { colorFor, sharesOf, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
 import type { RepoStats } from '../logic/interfaces';
-import type { RepoPreview } from '../messaging/messages';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
-import { formatBytes, formatCount } from './format';
+import { formatCount } from './format';
 
 export function Panel({ repo }: { repo: RepoRef }) {
   const { state, run } = useAnalysis(repo);
@@ -24,21 +23,15 @@ export function Panel({ repo }: { repo: RepoRef }) {
           </button>
         )}
       </div>
-      <Body state={state} onRun={run} />
+      <Body state={state} />
     </div>
   );
 }
 
-function Body({ state, onRun }: { state: AnalysisState; onRun: (force?: boolean) => void }) {
+function Body({ state }: { state: AnalysisState }) {
   switch (state.status) {
-    case 'loading':
-      return <p className="gas-muted text-xs">Reading repository tree…</p>;
-
     case 'error':
       return <ErrorNotice message={state.message} code={state.code} resetAt={state.resetAt} />;
-
-    case 'preview':
-      return <PreviewView preview={state.preview} onRun={() => onRun(false)} />;
 
     // Totals are shown as soon as they exist and keep filling in, rather than holding a
     // bare progress bar until the very last file lands. Both states render the same
@@ -118,37 +111,6 @@ function ErrorNotice({
   }
 
   return <p className="text-xs text-[var(--fgColor-danger,#d1242f)]">{message}</p>;
-}
-
-function PreviewView({ preview, onRun }: { preview: RepoPreview; onRun: () => void }) {
-  return (
-    <div className="space-y-2">
-      <p className="gas-muted text-xs">
-        {formatCount(preview.fileCount)} files
-        {preview.cachedCount > 0 && ` · ${formatCount(preview.cachedCount)} already counted`}
-        {preview.archiveBytes !== null
-          ? ` · ~${formatBytes(preview.archiveBytes)} archive to download`
-          : preview.needsDownload && ' · downloads the repository archive'}
-      </p>
-
-      {preview.truncated && <TruncatedNotice />}
-
-      <button
-        type="button"
-        onClick={onRun}
-        className="w-full cursor-pointer rounded-md border border-[var(--borderColor-default,#d1d9e0)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--bgColor-muted,#f6f8fa)]"
-      >
-        Count lines
-      </button>
-
-      {preview.rateLimit && preview.rateLimit.remaining < 100 && (
-        <p className="gas-muted text-xs">
-          {preview.rateLimit.remaining} of {preview.rateLimit.limit} API requests left this hour (
-          {Math.floor(preview.rateLimit.remaining / 4)} more repositories).
-        </p>
-      )}
-    </div>
-  );
 }
 
 function RunningView({ done, total, phase }: { done: number; total: number; phase: string }) {

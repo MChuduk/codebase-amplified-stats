@@ -3,8 +3,6 @@ import {
   type AnalyzeEvent,
   type AnalyzeStart,
   type ErrorCode,
-  type PreviewRequest,
-  type RepoPreview,
   type Request,
   type Response,
 } from '../src/messaging/messages';
@@ -41,10 +39,9 @@ export default defineBackground(() => {
       // Messages addressed to the offscreen document travel on the same bus.
       if ('target' in request) return false;
 
-      const provider = request.kind === 'preview' ? request.repo.provider : null;
       handle(request)
         .then((data) => sendResponse({ ok: true, data }))
-        .catch((error: unknown) => sendResponse(toErrorResponse(error, provider)));
+        .catch((error: unknown) => sendResponse(toErrorResponse(error, null)));
 
       // Returning true keeps the message channel open for the async response.
       return true;
@@ -112,8 +109,6 @@ function toErrorResponse(
 
 async function handle(request: Request): Promise<unknown> {
   switch (request.kind) {
-    case 'preview':
-      return preview(request);
     case 'cache-stats':
       return cache.cacheStats();
     case 'clear-cache':
@@ -126,9 +121,9 @@ type Resolved = Awaited<ReturnType<typeof resolveUncached>>;
 /**
  * Short-lived cache of resolved repositories.
  *
- * Each resolve costs three API requests. Without this, simply opening a repository page
- * spent three, clicking "Count lines" spent three more, and every re-mount of the panel
- * spent three again — all to learn the same commit SHA over and over.
+ * Each resolve costs three API requests. Without this, every re-mount of the panel — and
+ * the host re-renders its sidebar often — spent three again, all to learn the same commit
+ * SHA over and over.
  */
 const RESOLVE_TTL_MS = 10 * 60 * 1000;
 const resolveCache = new Map<string, { at: number; value: Promise<Resolved> }>();
@@ -179,41 +174,9 @@ async function resolveUncached(repo: RepoRef) {
   return {
     branch: info.defaultBranch,
     commitSha,
-    sizeKb: info.sizeKb,
     files,
     skippedByReason: filtered.skippedByReason,
-    totalBytes: filtered.totalBytes,
     truncated: tree.truncated,
-  };
-}
-
-/**
- * Works out what counting would involve without downloading anything. Costs three API
- * requests, and answers from cache when this commit has been counted before.
- */
-async function preview(request: PreviewRequest): Promise<RepoPreview> {
-  const { repo } = request;
-  const resolved = await resolve(repo);
-
-  const cached = await cache.getRepoRun(repo, resolved.commitSha);
-  const known = await cache.getBlobStats(resolved.files.map((file) => file.sha));
-
-  // The archive is all-or-nothing: either every file is already counted and nothing is
-  // downloaded, or the whole repository comes down. Reporting the sum of the uncounted
-  // files would understate that, sometimes by a lot.
-  const needsDownload = resolved.files.some((file) => !known.has(file.sha));
-
-  return {
-    branch: resolved.branch,
-    commitSha: resolved.commitSha,
-    fileCount: resolved.files.length,
-    totalBytes: resolved.totalBytes,
-    cachedCount: known.size,
-    needsDownload,
-    archiveBytes: needsDownload && resolved.sizeKb !== null ? resolved.sizeKb * 1024 : null,
-    truncated: resolved.truncated,
-    cached,
-    rateLimit: providerFor(repo.provider).lastRateLimit(),
   };
 }
 

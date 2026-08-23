@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ANALYZE_PORT,
-  sendRequest,
   type AnalyzeEvent,
   type AnalyzePhase,
   type ErrorCode,
-  type RepoPreview,
 } from '../../messaging/messages';
 import type { RepoRef } from '../../common';
 import type { Browser } from 'wxt/browser';
 import type { RepoStats } from '../../logic/interfaces';
 
 export type AnalysisState =
-  | { status: 'loading' }
-  | { status: 'preview'; preview: RepoPreview }
   /** `partial` holds the totals so far once the first files have been counted. */
   | {
       status: 'running';
@@ -25,46 +21,11 @@ export type AnalysisState =
   | { status: 'stats'; stats: RepoStats; failures: number }
   | { status: 'error'; message: string; code?: ErrorCode; resetAt?: number };
 
+const STARTING: AnalysisState = { status: 'running', phase: 'resolving', done: 0, total: 0 };
+
 export function useAnalysis(repo: RepoRef) {
-  const [state, setState] = useState<AnalysisState>({ status: 'loading' });
+  const [state, setState] = useState<AnalysisState>(STARTING);
   const portRef = useRef<Browser.runtime.Port | null>(null);
-
-  const loadPreview = useCallback(() => {
-    let cancelled = false;
-    setState({ status: 'loading' });
-
-    void sendRequest<RepoPreview>({ kind: 'preview', repo }).then((response) => {
-      if (cancelled) return;
-      if (!response.ok) {
-        setState({
-          status: 'error',
-          message: response.error,
-          code: response.code,
-          resetAt: response.resetAt,
-        });
-        return;
-      }
-      // A cached result for the current commit means there is nothing to ask about.
-      if (response.data.cached) {
-        setState({ status: 'stats', stats: response.data.cached, failures: 0 });
-      } else {
-        setState({ status: 'preview', preview: response.data });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repo.owner, repo.repo]);
-
-  useEffect(() => {
-    const cancel = loadPreview();
-    return () => {
-      cancel();
-      portRef.current?.disconnect();
-      portRef.current = null;
-    };
-  }, [loadPreview]);
 
   const run = useCallback(
     (force = false) => {
@@ -73,7 +34,7 @@ export function useAnalysis(repo: RepoRef) {
       const port = browser.runtime.connect({ name: ANALYZE_PORT });
       portRef.current = port;
 
-      setState({ status: 'running', phase: 'resolving', done: 0, total: 0 });
+      setState(STARTING);
 
       port.onMessage.addListener((message: unknown) => {
         const event = message as AnalyzeEvent;
@@ -125,5 +86,15 @@ export function useAnalysis(repo: RepoRef) {
     [repo.owner, repo.repo],
   );
 
-  return { state, run, reload: loadPreview };
+  // Counting starts on its own: a repository page the user has opened is the whole
+  // intent, and a cached commit answers from storage without downloading anything.
+  useEffect(() => {
+    run();
+    return () => {
+      portRef.current?.disconnect();
+      portRef.current = null;
+    };
+  }, [run]);
+
+  return { state, run };
 }

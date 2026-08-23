@@ -4,15 +4,10 @@ import type { RepoStats } from '../logic/interfaces';
 /**
  * Message contract between the content script and the background service worker.
  *
- * Quick lookups use `sendMessage`. Counting uses a long-lived port instead: it streams
+ * Cache maintenance uses `sendMessage`. Counting uses a long-lived port instead: it streams
  * progress back, and an open port keeps the service worker from being torn down
  * mid-run — an ordinary `sendMessage` round trip does not.
  */
-
-export interface PreviewRequest {
-  kind: 'preview';
-  repo: RepoRef;
-}
 
 export interface CacheStatsRequest {
   kind: 'cache-stats';
@@ -22,30 +17,7 @@ export interface ClearCacheRequest {
   kind: 'clear-cache';
 }
 
-export type Request = PreviewRequest | CacheStatsRequest | ClearCacheRequest;
-
-export interface RepoPreview {
-  branch: string;
-  commitSha: string;
-  /** Files that survived filtering, not files in the repository. */
-  fileCount: number;
-  /** Summed over those files. */
-  totalBytes: number;
-  /** Of those files, how many are already counted and will be skipped. */
-  cachedCount: number;
-  needsDownload: boolean;
-  /**
-   * An estimate of the whole repository, vendored and binary files included, because the
-   * archive carries all of it — not the sum of the files worth counting, which would
-   * understate it badly. Null when there is nothing to download, and also when the host
-   * reports no size, so `needsDownload` is what decides whether a download happens.
-   */
-  archiveBytes: number | null;
-  truncated: boolean;
-  /** A previous run of this exact commit, when one exists. */
-  cached: RepoStats | null;
-  rateLimit: { remaining: number; limit: number; resetAt: number } | null;
-}
+export type Request = CacheStatsRequest | ClearCacheRequest;
 
 export type ErrorCode =
   | 'rate-limit'
