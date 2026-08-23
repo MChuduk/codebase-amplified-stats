@@ -1,6 +1,6 @@
 import '../../src/ui/style.css';
 import * as anchor from '../../src/providers/github/anchor';
-import { mountPanel } from '../../src/ui/mount';
+import { mountPanel, unmountPanel } from '../../src/ui/mount';
 import { github } from '../../src/providers/github';
 
 /**
@@ -13,14 +13,22 @@ export default defineContentScript({
   runAt: 'document_idle',
 
   main(ctx) {
-    const safeMount = () => {
-      mountPanel(ctx, github, anchor).catch((error: unknown) => {
+    const safeMount = (url: URL) => {
+      mountPanel(ctx, github, anchor, url).catch((error: unknown) => {
         // Never let a mounting failure surface as an unhandled rejection on the host's page.
+        // Reloading or updating the extension orphans this script against a dead runtime,
+        // which nothing here can recover from — the page has to be reloaded.
+        if (isContextInvalidated(error)) return;
         console.warn('[amplified-stats] mount failed', error);
       });
     };
 
-    safeMount();
-    ctx.addEventListener(window, 'wxt:locationchange', safeMount);
+    safeMount(new URL(location.href));
+    ctx.addEventListener(window, 'wxt:locationchange', (event) => safeMount(event.newUrl));
+    ctx.onInvalidated(unmountPanel);
   },
 });
+
+function isContextInvalidated(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Extension context invalidated');
+}

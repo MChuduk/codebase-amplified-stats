@@ -1,6 +1,6 @@
 {
   "name": "github-amplified-stats",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "Chrome extension showing real lines-of-code statistics per language for GitHub repositories",
   "author": "Mikhail Chuduk",
   "private": true,
