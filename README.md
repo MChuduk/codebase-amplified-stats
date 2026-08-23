@@ -1,4 +1,4 @@
-# GitHub Amplified Stats
+# Codebase Amplified Stats
 
 A Chrome extension that shows **real lines of code per language** on a GitHub repository
 page — public or private, any repository you can read.

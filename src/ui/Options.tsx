@@ -14,7 +14,7 @@ export function Options({ compact = false }: { compact?: boolean }) {
     <CompactContext value={compact}>
       <main className={compact ? 'px-4 py-4' : 'mx-auto max-w-2xl px-6 py-10'}>
         <h1 className={compact ? 'text-base font-semibold' : 'text-xl font-semibold'}>
-          GitHub Amplified Stats
+          Codebase Amplified Stats
         </h1>
         <p className="mt-1 text-sm text-[var(--page-muted)]">
           Real lines-of-code statistics per language, with vendored and generated files filtered

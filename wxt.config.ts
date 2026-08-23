@@ -26,7 +26,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   srcDir: '.',
   manifest: {
-    name: 'GitHub Amplified Stats',
+    name: 'Codebase Amplified Stats',
     description:
       'Real lines-of-code statistics per language for GitHub repositories, with vendored and generated files filtered out.',
     permissions: ['storage', 'offscreen'],
