@@ -9,7 +9,6 @@ export interface Settings extends FilterOptions {
 
 const DEFAULT_FILTER_OPTIONS: FilterOptions = {
   maxFileSize: 1024 * 1024,
-  include: ['code', 'test', 'docs', 'data'],
   excludePaths: [],
 };
 

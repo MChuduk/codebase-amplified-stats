@@ -6913,25 +6913,3 @@ export const VENDOR_PATTERNS: string[] = [
   "(^|/)\\.teamcity/",
   "(^|/)xvba_modules/"
 ];
-
-/** Paths Linguist treats as documentation. */
-export const DOCUMENTATION_PATTERNS: string[] = [
-  "^[Dd]ocs?/",
-  "(^|/)[Dd]ocumentation/",
-  "(^|/)[Gg]roovydoc/",
-  "(^|/)[Jj]avadoc/",
-  "^[Mm]an/",
-  "^[Ee]xamples/",
-  "^[Dd]emos?/",
-  "(^|/)inst/doc/",
-  "(^|/)CITATION(\\.cff|(S)?(\\.(bib|md))?)$",
-  "(^|/)CHANGE(S|LOG)?(\\.|$)",
-  "(^|/)CONTRIBUTING(\\.|$)",
-  "(^|/)COPYING(\\.|$)",
-  "(^|/)INSTALL(\\.|$)",
-  "(^|/)LICEN[CS]E(\\.|$)",
-  "(^|/)[Ll]icen[cs]e(\\.|$)",
-  "(^|/)README(\\.|$)",
-  "(^|/)[Rr]eadme(\\.|$)",
-  "^[Ss]amples?/"
-];

@@ -1,13 +1,12 @@
 import type { RepoRef } from '../common';
 import { LANGUAGES } from './languages.generated';
-import type { FileCategory, LanguageStats, LineStats, RepoStats, SkipReason } from './interfaces';
+import type { LanguageStats, LineStats, RepoStats, SkipReason } from './interfaces';
 
 export interface FileResult {
   path: string;
   sha: string;
   size: number;
   language: string;
-  category: FileCategory;
   stats: LineStats;
 }
 
@@ -42,41 +41,27 @@ export function aggregate(
   options: { groupLanguages?: boolean } = {},
 ): LanguageStats[] {
   const groupLanguages = options.groupLanguages ?? true;
-  const byLanguage = new Map<
-    string,
-    {
-      totals: ReturnType<typeof emptyStats>;
-      byCategory: Map<FileCategory, ReturnType<typeof emptyStats>>;
-    }
-  >();
+  const byLanguage = new Map<string, ReturnType<typeof emptyStats>>();
 
   for (const result of results) {
     const meta = LANGUAGES[result.language];
     const name = (groupLanguages && meta?.group) || result.language;
 
-    let entry = byLanguage.get(name);
-    if (!entry) {
-      entry = { totals: emptyStats(), byCategory: new Map() };
-      byLanguage.set(name, entry);
+    let totals = byLanguage.get(name);
+    if (!totals) {
+      totals = emptyStats();
+      byLanguage.set(name, totals);
     }
 
-    accumulate(entry.totals, result.stats, result.size);
-
-    let categoryStats = entry.byCategory.get(result.category);
-    if (!categoryStats) {
-      categoryStats = emptyStats();
-      entry.byCategory.set(result.category, categoryStats);
-    }
-    accumulate(categoryStats, result.stats, result.size);
+    accumulate(totals, result.stats, result.size);
   }
 
   const languages: LanguageStats[] = [];
-  for (const [language, entry] of byLanguage) {
+  for (const [language, totals] of byLanguage) {
     languages.push({
       language,
       color: LANGUAGES[language]?.color ?? null,
-      ...entry.totals,
-      byCategory: Object.fromEntries(entry.byCategory),
+      ...totals,
     });
   }
 
@@ -133,44 +118,6 @@ export function buildRepoStats(params: {
     partial: params.partial,
     computedAt: Date.now(),
   };
-}
-
-/** Recomputed rather than re-counted, so toggling "count tests" costs nothing. */
-export function filterByCategory(
-  languages: LanguageStats[],
-  categories: FileCategory[],
-): LanguageStats[] {
-  const wanted = new Set(categories);
-  const filtered: LanguageStats[] = [];
-
-  for (const language of languages) {
-    const totals = emptyStats();
-    const kept: LanguageStats['byCategory'] = {};
-
-    for (const [category, stats] of Object.entries(language.byCategory)) {
-      if (!wanted.has(category as FileCategory)) continue;
-      kept[category as FileCategory] = stats;
-      totals.total += stats.total;
-      totals.blank += stats.blank;
-      totals.code += stats.code;
-      totals.files += stats.files;
-      totals.bytes += stats.bytes;
-      if (totals.comment === null || stats.comment === null) totals.comment = null;
-      else totals.comment += stats.comment;
-    }
-
-    if (totals.files > 0) {
-      filtered.push({
-        language: language.language,
-        color: language.color,
-        ...totals,
-        byCategory: kept,
-      });
-    }
-  }
-
-  filtered.sort((a, b) => b.code - a.code || a.language.localeCompare(b.language));
-  return filtered;
 }
 
 /** Shares of *code* lines specifically, which is what the stacked bar plots. */

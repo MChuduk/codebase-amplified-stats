@@ -1,13 +1,7 @@
 import type { TreeEntry } from '../common';
-import { DOCUMENTATION_PATTERNS, LANGUAGES, VENDOR_PATTERNS } from './languages.generated';
+import { VENDOR_PATTERNS } from './languages.generated';
 import { detectLanguage, extensionOf } from './detect';
-import type {
-  CountableFile,
-  FileCategory,
-  FilterOptions,
-  FilterResult,
-  SkipReason,
-} from './interfaces';
+import type { CountableFile, FilterOptions, FilterResult, SkipReason } from './interfaces';
 
 /**
  * Paths that are machine-written rather than authored. Linguist decides most of these by
@@ -79,17 +73,6 @@ const BINARY_EXTENSIONS = new Set([
   '.npy', '.npz', '.h5', '.hdf5', '.pt', '.pth', '.onnx', '.safetensors', '.gguf',
 ]);
 
-/** Paths and filename shapes that mark a file as a test. */
-const TEST_PATTERNS: string[] = [
-  '(^|/)(tests?|__tests__|spec|specs|testing)/',
-  '(^|/)test_[^/]+\\.(py|rb)$',
-  '[._-]test\\.(js|jsx|ts|tsx|go|py|rb|dart|kt|swift)$',
-  '[._-]spec\\.(js|jsx|ts|tsx|rb|py|kt)$',
-  '(^|/)[^/]+Test(s)?\\.(java|kt|cs|scala|php)$',
-  '(^|/)[^/]+Spec\\.(scala|kt|groovy)$',
-  '(^|/)conftest\\.py$',
-];
-
 /** One alternation per list, so the hot path is a single regex test. */
 function compile(patterns: string[]): RegExp {
   return new RegExp(patterns.map((p) => `(?:${p})`).join('|'));
@@ -97,17 +80,6 @@ function compile(patterns: string[]): RegExp {
 
 const vendor = compile(VENDOR_PATTERNS);
 const generated = compile(GENERATED_PATTERNS);
-const documentation = compile(DOCUMENTATION_PATTERNS);
-const tests = compile(TEST_PATTERNS);
-
-function categorise(path: string, language: string): FileCategory {
-  if (tests.test(path)) return 'test';
-
-  const meta = LANGUAGES[language];
-  if (meta?.type === 'prose' || documentation.test(path)) return 'docs';
-  if (meta?.type === 'data') return 'data';
-  return 'code';
-}
 
 const EMPTY_REASONS: Record<SkipReason, number> = {
   'not-a-file': 0,
@@ -128,7 +100,6 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
   const skippedByReason = { ...EMPTY_REASONS };
   let totalBytes = 0;
 
-  const included = new Set(options.include);
   const excludePrefixes = options.excludePaths.filter(Boolean);
 
   const skip = (reason: SkipReason) => {
@@ -171,12 +142,6 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
       continue;
     }
 
-    const category = categorise(path, language);
-    if (!included.has(category)) {
-      skip('excluded-type');
-      continue;
-    }
-
     const size = entry.size ?? 0;
     if (size > options.maxFileSize) {
       skip('too-large');
@@ -188,7 +153,7 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
       continue;
     }
 
-    files.push({ path, sha: entry.sha, size, language, category });
+    files.push({ path, sha: entry.sha, size, language });
     totalBytes += size;
   }
 

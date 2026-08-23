@@ -155,7 +155,7 @@ rest. Results are persisted per batch as they arrive, so an interrupted run bank
   OAuth App access restrictions hide a repository from an otherwise valid token).
 - **`repoRuns` is keyed by `provider:owner/repo@commit`; `blobStats` is not namespaced** —
   a blob SHA hashes contents, so the same file counted under one host is legitimately a hit
-  under another. `DB_VERSION` is 2; the upgrade drops `repoRuns` and leaves `blobStats`.
+  under another. `DB_VERSION` is 3; the upgrade drops `repoRuns` and leaves `blobStats`.
 
 ## Project rules
 

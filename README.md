@@ -67,8 +67,8 @@ Both reference tools mis-handle `/*` inside Go string literals — `"/src/*filep
 block comment for them and swallows the rest of the file. This extension gets that right,
 which is why some Go files differ from both.
 
-Languages with no comment syntax in the table are still counted for total, blank and code;
-their comment column shows `—` rather than a guess.
+Languages with no comment syntax in the table are still counted; without those rules every
+non-blank line is code, which is the safe direction to be wrong in.
 
 ## What gets excluded
 
@@ -83,8 +83,8 @@ itself, plus path rules for generated output:
 The panel always reports how many files were excluded and why. A number you cannot explain
 is worse than no number.
 
-Tests, documentation and data files are counted but kept in separate buckets, so you can
-toggle them in the panel without re-downloading anything.
+Everything that survives those rules is counted together: the panel reports one
+lines-of-code figure for the repository, broken down by language and nothing else.
 
 ## Install
 

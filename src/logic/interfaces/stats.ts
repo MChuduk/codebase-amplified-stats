@@ -1,5 +1,5 @@
 import type { ProviderId } from '../../common';
-import type { FileCategory, SkipReason } from './filter';
+import type { SkipReason } from './filter';
 
 export interface LineStats {
   total: number;
@@ -14,8 +14,6 @@ export interface LanguageStats extends LineStats {
   color: string | null;
   files: number;
   bytes: number;
-  /** Per-category breakdown, so the UI can subtract tests or docs without recounting. */
-  byCategory: Partial<Record<FileCategory, LineStats & { files: number; bytes: number }>>;
 }
 
 export interface RepoStats {

@@ -5,14 +5,6 @@ import { providerFor } from '../providers/registry';
 import { getSettings, getToken, saveSettings, setToken, type Settings } from '../logic/settings';
 import { sendRequest } from '../messaging/messages';
 import { formatBytes, formatCount } from './format';
-import type { FileCategory } from '../logic/interfaces';
-
-const CATEGORY_LABELS: Record<FileCategory, string> = {
-  code: 'Source code',
-  test: 'Tests',
-  docs: 'Documentation and prose',
-  data: 'Data and configuration',
-};
 
 export function Options() {
   return (
@@ -209,32 +201,12 @@ function FiltersSection() {
     void saveSettings(patch);
   };
 
-  const toggleCategory = (category: FileCategory) => {
-    const next = settings.include.includes(category)
-      ? settings.include.filter((item) => item !== category)
-      : [...settings.include, category];
-    // Code is the whole point of the extension; refuse to leave nothing to count.
-    if (next.length === 0) return;
-    update({ include: next });
-  };
-
   return (
     <Section title="What to count">
       <p className="text-[var(--page-muted)]">
-        Vendored and generated files are always excluded, using GitHub Linguist&apos;s own rules.
-        These categories are downloaded and counted; you can still toggle them per repository.
+        Every recognised text file in the repository is counted. Vendored and generated files are
+        always excluded, using GitHub Linguist&apos;s own rules.
       </p>
-
-      {(Object.keys(CATEGORY_LABELS) as FileCategory[]).map((category) => (
-        <label key={category} className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={settings.include.includes(category)}
-            onChange={() => toggleCategory(category)}
-          />
-          {CATEGORY_LABELS[category]}
-        </label>
-      ))}
 
       <label className="block">
         <span className="block">Skip files larger than</span>

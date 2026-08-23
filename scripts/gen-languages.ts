@@ -136,10 +136,9 @@ function cleanPatterns(patterns: string[]): string[] {
 
 async function main() {
   console.log('Fetching Linguist data…');
-  const [languages, vendor, documentation] = await Promise.all([
+  const [languages, vendor] = await Promise.all([
     fetchYaml<Record<string, LinguistLanguage>>('languages'),
     fetchYaml<string[]>('vendor'),
-    fetchYaml<string[]>('documentation'),
   ]);
 
   const languageMeta: Record<string, { type: string; color: string | null; group: string | null }> =
@@ -178,10 +177,9 @@ async function main() {
   }
 
   const vendorPatterns = cleanPatterns(vendor);
-  const documentationPatterns = cleanPatterns(documentation);
 
   // Validate every pattern compiles under the JavaScript engine before shipping it.
-  for (const pattern of [...vendorPatterns, ...documentationPatterns]) {
+  for (const pattern of vendorPatterns) {
     try {
       new RegExp(pattern);
     } catch (error) {
@@ -209,9 +207,6 @@ export const AMBIGUOUS_EXTENSIONS: Record<string, string[]> = ${JSON.stringify(a
 
 /** Paths Linguist treats as vendored — third-party code that is not the author's work. */
 export const VENDOR_PATTERNS: string[] = ${JSON.stringify(vendorPatterns, null, 2)};
-
-/** Paths Linguist treats as documentation. */
-export const DOCUMENTATION_PATTERNS: string[] = ${JSON.stringify(documentationPatterns, null, 2)};
 `;
 
   await writeFile(OUTPUT, source, 'utf8');
@@ -222,9 +217,7 @@ export const DOCUMENTATION_PATTERNS: string[] = ${JSON.stringify(documentationPa
       `${Object.keys(extensions).length} extensions (${Object.keys(ambiguous).length} ambiguous), ` +
       `${Object.keys(filenames).length} filenames`,
   );
-  console.log(
-    `  ${vendorPatterns.length} vendor patterns, ${documentationPatterns.length} documentation patterns`,
-  );
+  console.log(`  ${vendorPatterns.length} vendor patterns`);
 }
 
 main().catch((error) => {

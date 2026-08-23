@@ -15,7 +15,7 @@ import type { LineStats, RepoStats } from './interfaces';
  */
 
 const DB_NAME = 'amplified-stats';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /** Blob entries older than this are evicted; they cost nothing to recompute. */
 const BLOB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -62,8 +62,10 @@ function db(): Promise<IDBPDatabase<CacheSchema>> {
         blobs.createIndex('lastUsed', 'lastUsed');
       }
 
-      // v2 put the provider into the run key. `blobStats` is untouched by that: it is
-      // keyed by blob SHA, a hash of contents, which means the same across any host.
+      // Every version bump so far has changed the shape of a stored run — v2 put the
+      // provider into the key, v3 dropped the per-category breakdown — so runs are
+      // rebuilt. `blobStats` is untouched: it is keyed by blob SHA, a hash of contents,
+      // which means the same across any host and any of those changes.
       if (database.objectStoreNames.contains('repoRuns')) {
         database.deleteObjectStore('repoRuns');
       }

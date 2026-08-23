@@ -1,17 +1,10 @@
 import { useMemo, useState } from 'react';
-import { colorFor, filterByCategory, sharesOf, totalsOf } from '../logic/aggregate';
+import { colorFor, sharesOf, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
-import type { FileCategory, RepoStats, SkipReason } from '../logic/interfaces';
+import type { RepoStats, SkipReason } from '../logic/interfaces';
 import type { RepoPreview } from '../messaging/messages';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
 import { formatBytes, formatCount, formatPercent } from './format';
-
-const CATEGORY_LABELS: Record<FileCategory, string> = {
-  code: 'Code',
-  test: 'Tests',
-  docs: 'Docs',
-  data: 'Data',
-};
 
 const SKIP_LABELS: Record<SkipReason, string> = {
   'not-a-file': 'empty or not a file',
@@ -59,8 +52,8 @@ function Body({ state, onRun }: { state: AnalysisState; onRun: (force?: boolean)
 
     // Totals are shown as soon as they exist and keep filling in, rather than holding a
     // bare progress bar until the very last file lands. Both states render the same
-    // shape, and the key keeps the table mounted across the handover — otherwise the
-    // categories and sorting someone picked mid-run would reset the moment it finished.
+    // shape, and the key keeps the table mounted across the handover — otherwise an
+    // expanded list would collapse the moment the run finished.
     case 'running':
     case 'stats': {
       const running = state.status === 'running';
@@ -198,54 +191,17 @@ function TruncatedNotice() {
   );
 }
 
-type SortKey = 'code' | 'comment' | 'blank' | 'files' | 'language';
-
 function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) {
-  const [categories, setCategories] = useState<FileCategory[]>(['code', 'test']);
-  const [detailed, setDetailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('code');
 
-  const filtered = useMemo(
-    () => filterByCategory(stats.languages, categories),
-    [stats.languages, categories],
-  );
-
-  const languages = useMemo(() => {
-    const sorted = [...filtered];
-    sorted.sort((a, b) => {
-      if (sortKey === 'language') return a.language.localeCompare(b.language);
-      if (sortKey === 'comment') return (b.comment ?? -1) - (a.comment ?? -1);
-      return b[sortKey] - a[sortKey];
-    });
-    return sorted;
-  }, [filtered, sortKey]);
-
-  // Shares always reflect code lines, whatever the table is sorted by.
-  const totals = useMemo(() => totalsOf(filtered), [filtered]);
-  const shares = useMemo(() => sharesOf(filtered), [filtered]);
+  const { languages } = stats;
+  const totals = useMemo(() => totalsOf(languages), [languages]);
+  const shares = useMemo(() => sharesOf(languages), [languages]);
 
   const visible = expanded ? languages : languages.slice(0, 8);
-  const availableCategories = useMemo(() => {
-    const present = new Set<FileCategory>();
-    for (const language of stats.languages) {
-      for (const category of Object.keys(language.byCategory) as FileCategory[]) {
-        present.add(category);
-      }
-    }
-    return (['code', 'test', 'docs', 'data'] as FileCategory[]).filter((c) => present.has(c));
-  }, [stats.languages]);
-
-  const toggle = (category: FileCategory) => {
-    setCategories((current) =>
-      current.includes(category)
-        ? current.filter((item) => item !== category)
-        : [...current, category],
-    );
-  };
 
   if (languages.length === 0) {
-    return <p className="gas-muted text-xs">No files in the selected categories.</p>;
+    return <p className="gas-muted text-xs">No countable files in this repository.</p>;
   }
 
   return (
@@ -266,24 +222,6 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
       </div>
 
       <table className="w-full text-xs tabular-nums">
-        {detailed && (
-          <thead className="gas-muted">
-            <tr>
-              <SortHeader
-                label="Language"
-                sortKey="language"
-                active={sortKey}
-                onSort={setSortKey}
-                align="left"
-              />
-              <SortHeader label="Code" sortKey="code" active={sortKey} onSort={setSortKey} />
-              <SortHeader label="Comm." sortKey="comment" active={sortKey} onSort={setSortKey} />
-              <SortHeader label="Blank" sortKey="blank" active={sortKey} onSort={setSortKey} />
-              <SortHeader label="Files" sortKey="files" active={sortKey} onSort={setSortKey} />
-              <th />
-            </tr>
-          </thead>
-        )}
         <tbody>
           {visible.map((language) => (
             <tr key={language.language}>
@@ -299,19 +237,6 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
                 </span>
               </td>
               <td className="py-0.5 pr-2 text-right font-medium">{formatCount(language.code)}</td>
-              {detailed && (
-                <>
-                  <td className="gas-muted py-0.5 pr-2 text-right">
-                    {language.comment === null ? '—' : formatCount(language.comment)}
-                  </td>
-                  <td className="gas-muted py-0.5 pr-2 text-right">
-                    {formatCount(language.blank)}
-                  </td>
-                  <td className="gas-muted py-0.5 pr-2 text-right">
-                    {formatCount(language.files)}
-                  </td>
-                </>
-              )}
               <td className="gas-muted py-0.5 text-right">
                 {formatPercent(shares.get(language.language) ?? 0)}
               </td>
@@ -330,58 +255,8 @@ function StatsView({ stats, failures }: { stats: RepoStats; failures: number }) 
         </button>
       )}
 
-      <div className="flex flex-wrap gap-1.5 pt-1">
-        {availableCategories.map((category) => (
-          <button
-            key={category}
-            type="button"
-            onClick={() => toggle(category)}
-            className={`cursor-pointer rounded-full border px-2 py-0.5 text-xs ${
-              categories.includes(category)
-                ? 'border-transparent bg-[var(--bgColor-accent-emphasis,#0969da)] text-white'
-                : 'border-[var(--borderColor-default,#d1d9e0)]'
-            }`}
-          >
-            {CATEGORY_LABELS[category]}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setDetailed((value) => !value)}
-          className="gas-muted cursor-pointer rounded-full border border-[var(--borderColor-default,#d1d9e0)] px-2 py-0.5 text-xs"
-        >
-          {detailed ? 'Less' : 'Details'}
-        </button>
-      </div>
-
       <Footnotes stats={stats} failures={failures} />
     </div>
-  );
-}
-
-function SortHeader({
-  label,
-  sortKey,
-  active,
-  onSort,
-  align = 'right',
-}: {
-  label: string;
-  sortKey: SortKey;
-  active: SortKey;
-  onSort: (key: SortKey) => void;
-  align?: 'left' | 'right';
-}) {
-  return (
-    <th className={`font-normal ${align === 'left' ? 'text-left' : 'text-right'}`}>
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={`cursor-pointer hover:underline ${active === sortKey ? 'font-semibold' : ''}`}
-      >
-        {label}
-      </button>
-    </th>
   );
 }
 
