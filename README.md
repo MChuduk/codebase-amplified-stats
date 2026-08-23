@@ -8,7 +8,7 @@ recognises. A minified vendor bundle, a generated protobuf or a lock file can do
 bar while telling you nothing about the code someone actually wrote. This extension counts
 lines, separates code from comments, and throws the machine-written files out first.
 
-<!-- Screenshot: sidebar panel under the Languages block -->
+![The panel in GitHub's sidebar, under the Languages block](docs/screenshot-1280x800.png)
 
 ## How it works
 
@@ -171,6 +171,12 @@ content-script shell, with the counting engine untouched.
 - **GitHub's markup.** The panel anchors to the Languages block through several fallback
   strategies and re-mounts itself if GitHub re-renders the sidebar. If none match, it mounts
   nothing rather than break the page.
+
+## Privacy
+
+No backend, no telemetry, no third parties: every request goes to GitHub with your own
+token, and the caches hold line counts only — never file contents. Full text in
+[docs/privacy-policy.md](docs/privacy-policy.md).
 
 ## Licence
 

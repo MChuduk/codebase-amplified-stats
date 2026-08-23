@@ -34,7 +34,7 @@ export default defineConfig({
       // REST metadata, and the archive request that redirects to codeload.
       'https://api.github.com/*',
       // OAuth Device Flow endpoints.
-      'https://github.com/*',
+      'https://github.com/login/*',
       // Where the archive request lands after its redirect.
       'https://codeload.github.com/*',
     ],

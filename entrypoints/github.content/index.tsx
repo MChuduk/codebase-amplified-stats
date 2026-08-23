@@ -8,7 +8,7 @@ import { github } from '../../src/providers/github';
  * its own content script — but all of them are this short.
  */
 export default defineContentScript({
-  matches: ['*://github.com/*'],
+  matches: ['https://github.com/*'],
   cssInjectionMode: 'ui',
   runAt: 'document_idle',
 
