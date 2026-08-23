@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, use, useEffect, useRef, useState } from 'react';
 import { AuthError } from '../common';
 import type { DeviceCode } from '../common';
 import { providerFor } from '../providers/registry';
@@ -6,25 +6,49 @@ import { getSettings, getToken, saveSettings, setToken, type Settings } from '..
 import { sendRequest } from '../messaging/messages';
 import { formatBytes, formatCount } from './format';
 
-export function Options() {
-  return (
-    <main className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-xl font-semibold">GitHub Amplified Stats</h1>
-      <p className="mt-1 text-sm text-[var(--page-muted)]">
-        Real lines-of-code statistics per language, with vendored and generated files filtered out.
-      </p>
+/** The same settings rendered inside the toolbar popup, where space is a few hundred pixels. */
+const CompactContext = createContext(false);
 
-      <AccountSection />
-      <FiltersSection />
-      <CacheSection />
-      <AboutSection />
-    </main>
+export function Options({ compact = false }: { compact?: boolean }) {
+  return (
+    <CompactContext value={compact}>
+      <main className={compact ? 'px-4 py-4' : 'mx-auto max-w-2xl px-6 py-10'}>
+        <h1 className={compact ? 'text-base font-semibold' : 'text-xl font-semibold'}>
+          GitHub Amplified Stats
+        </h1>
+        <p className="mt-1 text-sm text-[var(--page-muted)]">
+          Real lines-of-code statistics per language, with vendored and generated files filtered
+          out.
+        </p>
+
+        <AccountSection />
+        <FiltersSection />
+        <CacheSection />
+        {compact ? <OpenFullSettings /> : <AboutSection />}
+      </main>
+    </CompactContext>
+  );
+}
+
+function OpenFullSettings() {
+  return (
+    <button
+      type="button"
+      onClick={() => void browser.runtime.openOptionsPage()}
+      className="mt-4 text-sm text-[var(--page-accent)] underline"
+    >
+      Open full settings
+    </button>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const compact = use(CompactContext);
+
   return (
-    <section className="mt-8 rounded-lg border border-[var(--page-border)] p-4">
+    <section
+      className={`rounded-lg border border-[var(--page-border)] p-4 ${compact ? 'mt-4' : 'mt-8'}`}
+    >
       <h2 className="text-base font-semibold">{title}</h2>
       <div className="mt-3 space-y-3 text-sm">{children}</div>
     </section>
@@ -35,6 +59,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const provider = providerFor('github');
 
 function AccountSection() {
+  const compact = use(CompactContext);
   const [login, setLogin] = useState<string | null>(null);
   const [device, setDevice] = useState<DeviceCode | null>(null);
   const [copied, setCopied] = useState(false);
@@ -68,6 +93,14 @@ function AccountSection() {
   }, []);
 
   const startSignIn = async () => {
+    // The device-flow poll lives in this page, and a popup is closed by the browser the moment
+    // the GitHub tab takes focus — so the popup hands sign-in over to the options page.
+    if (compact) {
+      await browser.runtime.openOptionsPage();
+      window.close();
+      return;
+    }
+
     setError(null);
     setNotice(null);
     setBusy(true);
@@ -116,13 +149,15 @@ function AccountSection() {
         Signing in is required: every request the extension makes is authenticated, which is what
         lets it count any repository you can read, private ones included.
       </p>
-      <p className="text-[var(--page-muted)]">
-        GitHub will ask you to grant the <code>repo</code> scope. There is no read-only version of
-        it — <code>repo</code> is the only classic OAuth scope that opens private repositories, so
-        the consent screen will mention write access. This extension only ever reads: it lists a
-        repository&apos;s files and downloads an archive of them. The token is stored in this
-        browser profile and is sent to GitHub and nowhere else.
-      </p>
+      {!compact && (
+        <p className="text-[var(--page-muted)]">
+          GitHub will ask you to grant the <code>repo</code> scope. There is no read-only version of
+          it — <code>repo</code> is the only classic OAuth scope that opens private repositories, so
+          the consent screen will mention write access. This extension only ever reads: it lists a
+          repository&apos;s files and downloads an archive of them. The token is stored in this
+          browser profile and is sent to GitHub and nowhere else.
+        </p>
+      )}
 
       {!provider.auth.isConfigured() && (
         <p className="rounded-md bg-[var(--page-subtle)] p-2 text-[var(--page-muted)]">
