@@ -14,7 +14,7 @@ import { disambiguate } from '../src/logic/disambiguate';
 import { buildRepoStats, type FileResult } from '../src/logic/aggregate';
 import { runCountJob } from '../src/messaging/offscreen-host';
 import * as cache from '../src/logic/cache';
-import { claimCacheCleanup, getSettings, getToken, setToken } from '../src/logic/settings';
+import { claimCacheCleanup, getToken, setToken } from '../src/logic/settings';
 import type { CountableFile } from '../src/logic/interfaces';
 
 /**
@@ -159,7 +159,7 @@ function resolve(repo: RepoRef): Promise<Resolved> {
 /** Resolves a repository to a commit and the list of files worth counting. */
 async function resolveUncached(repo: RepoRef) {
   const provider = providerFor(repo.provider);
-  const [token, settings] = await Promise.all([requireToken(repo), getSettings()]);
+  const token = await requireToken(repo);
 
   // `HEAD` resolves to the default branch's tip without first having to learn the branch
   // name, so these two run together and the resolve costs two round trips instead of
@@ -173,7 +173,7 @@ async function resolveUncached(repo: RepoRef) {
   const commitSha = headSha ?? (await provider.fetchCommitSha(repo, info.defaultBranch, token));
   const tree = await provider.fetchTree(repo, commitSha, token);
 
-  const filtered = filterTree(tree.entries, settings);
+  const filtered = filterTree(tree.entries);
   const { files } = disambiguate(filtered.files);
 
   return {

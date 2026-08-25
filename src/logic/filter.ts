@@ -1,7 +1,7 @@
 import type { TreeEntry } from '../common';
 import { VENDOR_PATTERNS } from './languages.generated';
 import { detectLanguage, extensionOf } from './detect';
-import type { CountableFile, FilterOptions, FilterResult, SkipReason } from './interfaces';
+import type { CountableFile, FilterResult, SkipReason } from './interfaces';
 
 /**
  * Paths that are machine-written rather than authored. Linguist decides most of these by
@@ -78,6 +78,12 @@ function compile(patterns: string[]): RegExp {
   return new RegExp(patterns.map((p) => `(?:${p})`).join('|'));
 }
 
+/**
+ * A file this large is a minified bundle or a data dump, not something anyone wrote by
+ * hand: counting it costs real CPU and skews the language it lands under.
+ */
+const MAX_FILE_SIZE = 1024 * 1024;
+
 const vendor = compile(VENDOR_PATTERNS);
 const generated = compile(GENERATED_PATTERNS);
 
@@ -87,7 +93,6 @@ const EMPTY_REASONS: Record<SkipReason, number> = {
   generated: 0,
   binary: 0,
   'unknown-language': 0,
-  'excluded-type': 0,
   'too-large': 0,
 };
 
@@ -95,12 +100,10 @@ const EMPTY_REASONS: Record<SkipReason, number> = {
  * Every skip records why. The reasons reach the panel, because a number the user cannot
  * account for is worse than no number at all.
  */
-export function filterTree(entries: TreeEntry[], options: FilterOptions): FilterResult {
+export function filterTree(entries: TreeEntry[]): FilterResult {
   const files: CountableFile[] = [];
   const skippedByReason = { ...EMPTY_REASONS };
   let totalBytes = 0;
-
-  const excludePrefixes = options.excludePaths.filter(Boolean);
 
   const skip = (reason: SkipReason) => {
     skippedByReason[reason] += 1;
@@ -112,11 +115,6 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
     // Trees, symlinks (120000) and submodule pointers (160000) hold no countable content.
     if (entry.type !== 'blob' || entry.mode === '120000' || entry.mode === '160000') {
       skip('not-a-file');
-      continue;
-    }
-
-    if (excludePrefixes.some((prefix) => path.startsWith(prefix))) {
-      skip('excluded-type');
       continue;
     }
 
@@ -143,7 +141,7 @@ export function filterTree(entries: TreeEntry[], options: FilterOptions): Filter
     }
 
     const size = entry.size ?? 0;
-    if (size > options.maxFileSize) {
+    if (size > MAX_FILE_SIZE) {
       skip('too-large');
       continue;
     }

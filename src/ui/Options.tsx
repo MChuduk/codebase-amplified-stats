@@ -2,9 +2,9 @@ import { createContext, use, useEffect, useRef, useState } from 'react';
 import { AuthError } from '../common';
 import type { DeviceCode } from '../common';
 import { providerFor } from '../providers/registry';
-import { getSettings, getToken, saveSettings, setToken, type Settings } from '../logic/settings';
+import { getToken, setToken } from '../logic/settings';
 import { sendRequest } from '../messaging/messages';
-import { formatBytes, formatCount } from './format';
+import { formatCount } from './format';
 
 /** The same settings rendered inside the toolbar popup, where space is a few hundred pixels. */
 const CompactContext = createContext(false);
@@ -22,7 +22,7 @@ export function Options({ compact = false }: { compact?: boolean }) {
         </p>
 
         <AccountSection />
-        <FiltersSection />
+        <ScopeSection />
         <CacheSection />
         {compact ? <OpenFullSettings /> : <AboutSection />}
       </main>
@@ -222,64 +222,15 @@ function AccountSection() {
   );
 }
 
-function FiltersSection() {
-  const [settings, setSettings] = useState<Settings | null>(null);
-
-  useEffect(() => {
-    void getSettings().then(setSettings);
-  }, []);
-
-  if (!settings) return null;
-
-  const update = (patch: Partial<Settings>) => {
-    setSettings((current) => (current ? { ...current, ...patch } : current));
-    void saveSettings(patch);
-  };
-
+function ScopeSection() {
   return (
     <Section title="What to count">
       <p className="text-[var(--page-muted)]">
         Every recognised text file in the repository is counted. Vendored and generated files are
-        always excluded, using GitHub Linguist&apos;s own rules.
+        always excluded, using GitHub Linguist&apos;s own rules, along with binaries and files
+        larger than 1 MB — at that size a file is a bundle or a data dump rather than something
+        anyone wrote.
       </p>
-
-      <label className="block">
-        <span className="block">Skip files larger than</span>
-        <span className="mt-1 flex items-center gap-2">
-          <input
-            type="number"
-            min={1}
-            max={64}
-            value={Math.round(settings.maxFileSize / 1024 / 1024)}
-            onChange={(event) =>
-              update({ maxFileSize: Math.max(1, Number(event.target.value)) * 1024 * 1024 })
-            }
-            className="w-20 rounded-md border border-[var(--page-border)] bg-transparent px-2 py-1"
-          />
-          <span className="text-[var(--page-muted)]">
-            MB — files this large are almost always generated ({formatBytes(settings.maxFileSize)})
-          </span>
-        </span>
-      </label>
-
-      <label className="block">
-        <span className="block">Additional paths to exclude</span>
-        <textarea
-          rows={3}
-          value={settings.excludePaths.join('\n')}
-          onChange={(event) =>
-            update({
-              excludePaths: event.target.value
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean),
-            })
-          }
-          placeholder="legacy/&#10;examples/"
-          className="mt-1 w-full rounded-md border border-[var(--page-border)] bg-transparent px-2 py-1 font-mono text-xs"
-        />
-        <span className="text-[var(--page-muted)]">One path prefix per line.</span>
-      </label>
     </Section>
   );
 }

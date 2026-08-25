@@ -1,14 +1,5 @@
 import type { ProviderId } from '../common';
-import type { FilterOptions } from './interfaces';
 
-export type Settings = FilterOptions;
-
-export const DEFAULT_SETTINGS: Settings = {
-  maxFileSize: 1024 * 1024,
-  excludePaths: [],
-};
-
-const SETTINGS_KEY = 'settings';
 const TOKENS_KEY = 'tokens';
 const CLEANUP_KEY = 'lastCacheCleanup';
 
@@ -28,17 +19,6 @@ export async function claimCacheCleanup(): Promise<boolean> {
 
   await browser.storage.local.set({ [CLEANUP_KEY]: Date.now() });
   return true;
-}
-
-export async function getSettings(): Promise<Settings> {
-  const stored = await browser.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<Settings> | undefined) };
-}
-
-export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
-  const merged = { ...(await getSettings()), ...settings };
-  await browser.storage.local.set({ [SETTINGS_KEY]: merged });
-  return merged;
 }
 
 type TokenStore = Partial<Record<ProviderId, string>>;

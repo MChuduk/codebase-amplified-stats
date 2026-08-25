@@ -26,7 +26,6 @@ extension, and none of it leaves your machine.
 | Stored                              | Where                  | What it is                                                                                     |
 | ----------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
 | GitHub OAuth access token           | `chrome.storage.local` | Created when you sign in, so requests to GitHub can be authenticated                           |
-| Your settings                       | `chrome.storage.local` | Filtering preferences and display options                                                      |
 | Per-file line counts (`blobStats`)  | IndexedDB              | Numbers only — code / comment / blank line totals, keyed by the file's Git content hash        |
 | Per-repository results (`repoRuns`) | IndexedDB              | Numbers only — the aggregated result for one repository at one commit, so revisits are instant |
 

@@ -63,7 +63,7 @@ Text prepared for the Developer Dashboard forms. Keep it in sync with the extens
 
 | Permission                      | Justification                                                                                                                                |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `storage`                       | Stores the user's GitHub OAuth token and the extension's settings locally, so sign-in and preferences survive a browser restart.             |
+| `storage`                       | Stores the user's GitHub OAuth token locally, so sign-in survives a browser restart.             |
 | `offscreen`                     | An MV3 service worker cannot call `new Worker()`. An offscreen document unpacks the repository archive and hosts the Web Workers that count. |
 | `https://api.github.com/*`      | Reads repository metadata, the commit SHA and the file listing, and requests the repository archive.                                         |
 | `https://github.com/login/*`    | The two OAuth Device Flow endpoints used to sign the user in.                                                                                |

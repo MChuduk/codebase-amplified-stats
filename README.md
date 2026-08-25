@@ -78,7 +78,7 @@ itself, plus path rules for generated output:
 - **Vendored** — `node_modules/`, `vendor/`, `dist/`, `third_party/`, `.github/`, and 160+ more
 - **Generated** — lock files, `*.pb.go`, `*_pb2.py`, `*.min.js`, `__snapshots__/`, `*.designer.cs`
 - **Binary** — by extension, plus a NUL-byte check on the bytes themselves
-- **Oversized** — above 1 MB by default; these are almost always generated dumps
+- **Oversized** — above 1 MB; these are almost always generated dumps
 
 The panel always reports how many files were excluded and why. A number you cannot explain
 is worse than no number.
@@ -141,7 +141,7 @@ entrypoints/
   github.content/    per-host content script — a shell over src/ui/mount.tsx
   background.ts      orchestrator: resolve → filter → cache → count
   offscreen/         downloads and unpacks the archive; hosts the counting Workers
-  options/           settings, sign-in, cache management
+  options/           sign-in, cache management
 src/common/          shared by the engine and every host: RepoRef, errors, the Provider contract
 src/logic/           counting engine, filter, tar reader, cache — no DOM, no host specifics
   interfaces/        its shapes: language, filter, stats
