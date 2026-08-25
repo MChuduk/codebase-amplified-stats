@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Codebase Amplified Stats — how to use</title>
+    <style>
+      :root {
+        --fg: #1f2328;
+        --muted: #59636e;
+        --accent: #0969da;
+        --border: #d1d9e0;
+        --surface: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+
+      body {
+        width: 1280px;
+        height: 800px;
+        overflow: hidden;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        color: var(--fg);
+        background: linear-gradient(160deg, #eef3f9 0%, #f8fafc 46%, #ffffff 100%);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        height: 100%;
+        padding: 56px 64px 48px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      header img {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+      }
+
+      h1 {
+        font-size: 30px;
+        letter-spacing: -0.02em;
+      }
+
+      .tagline {
+        margin-top: 4px;
+        font-size: 17px;
+        color: var(--muted);
+      }
+
+      .body {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 56px;
+        align-items: center;
+      }
+
+      ol {
+        list-style: none;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 44px;
+      }
+
+      li {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .num {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-size: 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .step-title {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .step-text {
+        margin-top: 8px;
+        font-size: 17px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      kbd {
+        font: inherit;
+        font-weight: 600;
+        color: var(--fg);
+        background: #eef2f6;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1px 7px;
+      }
+
+      figure {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px 18px 14px;
+        box-shadow: 0 18px 40px rgba(31, 35, 40, 0.13);
+      }
+
+      figure img {
+        display: block;
+        width: 100%;
+        border-radius: 6px;
+      }
+
+      figcaption {
+        margin-top: 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      footer {
+        margin-top: 36px;
+        padding-top: 22px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 34px;
+        font-size: 15px;
+        color: var(--muted);
+      }
+
+      footer span::before {
+        content: '✓';
+        color: var(--accent);
+        font-weight: 700;
+        margin-right: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <img src="../public/icon/128.png" alt="" />
+        <div>
+          <h1>Codebase Amplified Stats</h1>
+          <p class="tagline">Real lines of code per language, on any GitHub repository page.</p>
+        </div>
+      </header>
+
+      <div class="body">
+        <ol>
+          <li>
+            <div class="num">1</div>
+            <div>
+              <div class="step-title">Sign in with GitHub</div>
+              <p class="step-text">
+                Open the extension's options and click <kbd>Sign in with GitHub</kbd>. Paste the
+                code it copies for you, authorise — once, no password.
+              </p>
+            </div>
+          </li>
+          <li>
+            <div class="num">2</div>
+            <div>
+              <div class="step-title">Open any repository</div>
+              <p class="step-text">
+                Public or private. The panel appears in the sidebar right under
+                <kbd>Languages</kbd> and starts counting on its own.
+              </p>
+            </div>
+          </li>
+          <li>
+            <div class="num">3</div>
+            <div>
+              <div class="step-title">Read the real numbers</div>
+              <p class="step-text">
+                Lines of code per language — with vendored, generated and binary files thrown out
+                first. <kbd>Refresh</kbd> re-counts the latest commit.
+              </p>
+            </div>
+          </li>
+        </ol>
+
+        <figure>
+          <img src="panel.png" alt="The panel in GitHub's sidebar, under the Languages block" />
+          <figcaption>
+            GitHub says 99.4% Python by bytes.<br />The panel says 12,404 lines, per language.
+          </figcaption>
+        </figure>
+      </div>
+
+      <footer>
+        <span>Public and private repositories</span>
+        <span>No backend, no telemetry</span>
+        <span>Cached — instant on revisit</span>
+      </footer>
+    </div>
+  </body>
+</html>
