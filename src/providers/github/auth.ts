@@ -151,6 +151,6 @@ export async function verifyToken(token: string): Promise<TokenCheck> {
   if (tokenWasRejected) return 'invalid';
   if (!response.ok) return 'network';
 
-  const data = (await response.json()) as { login?: string };
-  return data.login ? { login: data.login } : 'invalid';
+  const data = (await response.json()) as { login?: string; avatar_url?: string };
+  return data.login ? { login: data.login, avatarUrl: data.avatar_url ?? null } : 'invalid';
 }

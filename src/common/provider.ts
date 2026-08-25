@@ -44,11 +44,17 @@ export interface DeviceCode {
   interval: number;
 }
 
+export interface Account {
+  login: string;
+  /** Null where the host does not publish one, or the profile has no picture. */
+  avatarUrl: string | null;
+}
+
 /**
  * `invalid` and `network` stay separate because callers discard the token on `invalid`.
  * Collapsing them would sign the user out every time their connection blinked.
  */
-export type TokenCheck = { login: string } | 'invalid' | 'network';
+export type TokenCheck = Account | 'invalid' | 'network';
 
 export interface AuthProvider {
   /** A host offering only pasted tokens would add its own kind alongside this one. */
