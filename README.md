@@ -42,3 +42,10 @@ pnpm format                                   # prettier
 pnpm zip                                      # packaged build for the store
 pnpm gen:languages                            # regenerate language data from Linguist
 ```
+
+## License
+
+[MIT](LICENSE) © Mikhail Chuduk.
+
+Language data is derived from [GitHub Linguist](https://github.com/github-linguist/linguist),
+also MIT-licensed — see [NOTICE](NOTICE).

@@ -3,6 +3,7 @@
   "version": "1.0.1",
   "description": "Chrome extension showing real lines-of-code statistics per language for GitHub repositories",
   "author": "Mikhail Chuduk",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
