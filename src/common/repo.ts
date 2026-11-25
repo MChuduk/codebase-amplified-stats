@@ -12,6 +12,8 @@ export interface RepoRef {
   /** May contain slashes: GitLab groups nest. Providers must encode it for their URLs. */
   owner: string;
   repo: string;
+  /** The ref selected on the code page, or the default branch when omitted. */
+  ref?: string;
 }
 
 /** An entry from a host's Git tree listing, narrowed to the fields we use. */

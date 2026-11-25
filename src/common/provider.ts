@@ -70,9 +70,8 @@ export interface Provider {
   readonly label: string;
   readonly auth: AuthProvider;
 
+  /** Identifies a possible repository overview. The sidebar confirms the page type. */
   parseRepoUrl(url: URL): RepoRef | null;
-  /** True only where the host renders the sidebar the panel mounts into. */
-  isRepoHomePage(url: URL): boolean;
 
   fetchRepoInfo(repo: RepoRef, token: string): Promise<RepoInfo>;
   fetchCommitSha(repo: RepoRef, ref: string, token: string): Promise<string>;

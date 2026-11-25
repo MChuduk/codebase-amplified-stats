@@ -2,15 +2,12 @@ import { useMemo, useState } from 'react';
 import { colorFor, totalsOf } from '../logic/aggregate';
 import type { RepoRef } from '../common';
 import type { RepoStats } from '../logic/interfaces';
+import { sendRequest } from '../messaging/messages';
 import { useAnalysis, type AnalysisState } from './hooks/useAnalysis';
 import { formatCount } from './format';
 
 export function Panel({ repo }: { repo: RepoRef }) {
   const { state, run } = useAnalysis(repo);
-
-  // A signed-out user gets no panel at all: mounting already checks for a token, and this
-  // covers the token being discarded mid-run, which unmounts a moment later.
-  if (state.status === 'error' && state.code === 'no-token') return null;
 
   return (
     <div className="gas-panel">
@@ -26,6 +23,15 @@ export function Panel({ repo }: { repo: RepoRef }) {
             Refresh
           </button>
         )}
+        {state.status === 'error' && state.code !== 'no-token' && (
+          <button
+            type="button"
+            onClick={() => run(true)}
+            className="gas-muted cursor-pointer text-xs hover:underline"
+          >
+            Retry
+          </button>
+        )}
       </div>
       <Body state={state} />
     </div>
@@ -35,6 +41,7 @@ export function Panel({ repo }: { repo: RepoRef }) {
 function Body({ state }: { state: AnalysisState }) {
   switch (state.status) {
     case 'error':
+      if (state.code === 'no-token') return <SignInNotice />;
       return <ErrorNotice message={state.message} code={state.code} resetAt={state.resetAt} />;
 
     // Totals are shown as soon as they exist and keep filling in, rather than holding a
@@ -54,6 +61,30 @@ function Body({ state }: { state: AnalysisState }) {
       );
     }
   }
+}
+
+function SignInNotice() {
+  const [openFailed, setOpenFailed] = useState(false);
+
+  return (
+    <div className="space-y-2 text-xs">
+      <p className="gas-muted">Sign in to the extension to count this repository.</p>
+      <button
+        type="button"
+        onClick={() => {
+          void sendRequest<void>({ kind: 'open-options' }).then((response) => {
+            setOpenFailed(!response.ok);
+          });
+        }}
+        className="gas-accent cursor-pointer hover:underline"
+      >
+        Sign in with GitHub
+      </button>
+      {openFailed && (
+        <p className="gas-muted">Open the extension from the Chrome toolbar to sign in.</p>
+      )}
+    </div>
+  );
 }
 
 function ErrorNotice({

@@ -7,30 +7,30 @@ import type { CountableFile } from '../logic/interfaces';
 /** WXT flattens `entrypoints/offscreen/index.html` to `offscreen.html` in the output. */
 const OFFSCREEN_PATH = 'offscreen.html';
 
-/** Chrome allows one offscreen document per extension and throws on a second, so
- *  concurrent callers share a single in-flight creation promise. */
-let creating: Promise<void> | null = null;
+let opening: Promise<void> | null = null;
+let closing: Promise<void> | null = null;
+let activeJobs = 0;
 
-async function ensureOffscreen(): Promise<void> {
+function ensureOffscreen(): Promise<void> {
+  // Chrome permits one offscreen document, so the lookup and creation must share a lock.
+  opening ??= openOffscreen().finally(() => {
+    opening = null;
+  });
+  return opening;
+}
+
+async function openOffscreen(): Promise<void> {
   const existing = await browser.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
   });
   if (existing.length > 0) return;
 
-  if (!creating) {
-    creating = browser.offscreen
-      .createDocument({
-        url: OFFSCREEN_PATH,
-        reasons: ['WORKERS'],
-        justification:
-          'Counting lines of code across thousands of files needs Web Workers, which a service worker cannot create.',
-      })
-      .finally(() => {
-        creating = null;
-      });
-  }
-
-  await creating;
+  await browser.offscreen.createDocument({
+    url: OFFSCREEN_PATH,
+    reasons: ['WORKERS'],
+    justification:
+      'Counting lines of code across thousands of files needs Web Workers, which a service worker cannot create.',
+  });
 }
 
 async function closeOffscreen(): Promise<void> {
@@ -67,7 +67,7 @@ export class CountJobError extends Error {
 
 /**
  * Runs a counting job in the offscreen document, forwarding progress and results as they
- * arrive. The document is torn down when the job ends, however it ends.
+ * arrive. A branch switch can start a second job while the previous one is finishing.
  */
 export async function runCountJob(options: CountJobOptions): Promise<CountJobResult> {
   const jobId = crypto.randomUUID();
@@ -90,8 +90,10 @@ export async function runCountJob(options: CountJobOptions): Promise<CountJobRes
   };
 
   browser.runtime.onMessage.addListener(onProgressMessage);
+  activeJobs += 1;
 
   try {
+    await closing;
     await ensureOffscreen();
 
     const request: OffscreenRequest = {
@@ -113,6 +115,12 @@ export async function runCountJob(options: CountJobOptions): Promise<CountJobRes
     return { failures: response.failures, binaries: response.binaries };
   } finally {
     browser.runtime.onMessage.removeListener(onProgressMessage);
-    await closeOffscreen();
+    activeJobs -= 1;
+    if (activeJobs === 0) {
+      closing = closeOffscreen().finally(() => {
+        closing = null;
+      });
+      await closing;
+    }
   }
 }

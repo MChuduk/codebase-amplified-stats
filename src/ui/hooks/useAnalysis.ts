@@ -22,21 +22,37 @@ export type AnalysisState =
   | { status: 'error'; message: string; code?: ErrorCode; resetAt?: number };
 
 const STARTING: AnalysisState = { status: 'running', phase: 'resolving', done: 0, total: 0 };
+const DISCONNECTED: AnalysisState = {
+  status: 'error',
+  message: 'The extension stopped responding. Reload this GitHub page and try again.',
+};
 
 export function useAnalysis(repo: RepoRef) {
   const [state, setState] = useState<AnalysisState>(STARTING);
   const portRef = useRef<Browser.runtime.Port | null>(null);
+  const closePort = useCallback(() => {
+    const port = portRef.current;
+    portRef.current = null;
+    port?.disconnect();
+  }, []);
 
   const run = useCallback(
     (force = false) => {
-      portRef.current?.disconnect();
+      closePort();
 
-      const port = browser.runtime.connect({ name: ANALYZE_PORT });
+      let port: Browser.runtime.Port;
+      try {
+        port = browser.runtime.connect({ name: ANALYZE_PORT });
+      } catch {
+        setState(DISCONNECTED);
+        return;
+      }
       portRef.current = port;
 
       setState(STARTING);
 
       port.onMessage.addListener((message: unknown) => {
+        if (portRef.current !== port) return;
         const event = message as AnalyzeEvent;
         switch (event.kind) {
           case 'progress':
@@ -61,8 +77,7 @@ export function useAnalysis(repo: RepoRef) {
             break;
           case 'result':
             setState({ status: 'stats', stats: event.stats, failures: event.failures });
-            port.disconnect();
-            portRef.current = null;
+            closePort();
             break;
           case 'error':
             setState({
@@ -71,30 +86,33 @@ export function useAnalysis(repo: RepoRef) {
               code: event.code,
               resetAt: event.resetAt,
             });
-            port.disconnect();
-            portRef.current = null;
+            closePort();
             break;
         }
       });
 
       port.onDisconnect.addListener(() => {
-        if (portRef.current === port) portRef.current = null;
+        if (portRef.current !== port) return;
+        portRef.current = null;
+        setState(DISCONNECTED);
       });
 
-      port.postMessage({ kind: 'analyze', repo, force });
+      try {
+        port.postMessage({ kind: 'analyze', repo, force });
+      } catch {
+        closePort();
+        setState(DISCONNECTED);
+      }
     },
-    [repo.owner, repo.repo],
+    [closePort, repo.provider, repo.owner, repo.repo, repo.ref],
   );
 
   // Counting starts on its own: a repository page the user has opened is the whole
   // intent, and a cached commit answers from storage without downloading anything.
   useEffect(() => {
     run();
-    return () => {
-      portRef.current?.disconnect();
-      portRef.current = null;
-    };
-  }, [run]);
+    return closePort;
+  }, [closePort, run]);
 
   return { state, run };
 }

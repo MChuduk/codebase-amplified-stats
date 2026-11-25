@@ -1,4 +1,4 @@
-import type { ProviderId, RepoRef } from '../common';
+import type { RepoRef } from '../common';
 import type { RepoStats } from '../logic/interfaces';
 
 /**
@@ -17,16 +17,17 @@ export interface ClearCacheRequest {
   kind: 'clear-cache';
 }
 
-/**
- * Whether a token is stored for a host — answered by the background, which is the only
- * place the token itself is ever read.
- */
-export interface SignedInRequest {
-  kind: 'signed-in';
-  provider: ProviderId;
+export interface OpenOptionsRequest {
+  kind: 'open-options';
 }
 
-export type Request = CacheStatsRequest | ClearCacheRequest | SignedInRequest;
+export type Request = CacheStatsRequest | ClearCacheRequest | OpenOptionsRequest;
+
+export interface PanelStatusRequest {
+  kind: 'panel-status';
+}
+
+export type PanelStatus = 'visible' | 'mount-pending' | 'sidebar-missing' | 'not-repository';
 
 export type ErrorCode =
   | 'rate-limit'

@@ -1,7 +1,6 @@
 import type { ContentScriptContext } from '#imports';
 import ReactDOM from 'react-dom/client';
-import type { Provider } from '../common';
-import { sendRequest } from '../messaging/messages';
+import type { Provider, RepoRef } from '../common';
 import { onTokensChanged } from '../logic/settings';
 import { Panel } from './Panel';
 
@@ -15,8 +14,8 @@ import { Panel } from './Panel';
 
 export interface AnchorAdapter {
   /** The single element the panel is inserted after, or null if it is not on the page. */
-  findAnchor(): Element | null;
-  waitForAnchor(signal: AbortSignal): Promise<Element | null>;
+  findAnchor(repo: RepoRef): Element | null;
+  waitForAnchor(repo: RepoRef, signal: AbortSignal): Promise<Element | null>;
 }
 
 interface ActiveUi {
@@ -43,8 +42,6 @@ let stopTokenWatch: (() => void) | null = null;
  * page being left and neither the URL nor the DOM can be trusted to describe the target
  * yet. The anchor is waited for, so arriving before the new page renders is fine.
  *
- * Nothing is mounted while the user is signed out: every request the engine makes is
- * authenticated, so a panel there could only ever say so.
  */
 export async function mountPanel(
   ctx: ContentScriptContext,
@@ -52,33 +49,22 @@ export async function mountPanel(
   anchor: AnchorAdapter,
   url: URL,
 ): Promise<void> {
-  pendingMount?.abort();
+  unmountPanel();
   pendingMount = new AbortController();
   const { signal } = pendingMount;
-
-  unmountPanel();
 
   if (!ctx.isValid) return;
 
   const repo = provider.parseRepoUrl(url);
-  // The sidebar only exists on the landing page; other sub-pages have nowhere to put it.
-  if (!repo || !provider.isRepoHomePage(url)) return;
+  if (!repo) return;
 
-  // Signing in from the options page has to bring the panel up without a page reload, and
-  // a token the host rejects mid-run has to take it away again.
+  // A sign-in or expired token changes what the panel can show without a page reload.
   stopTokenWatch = onTokensChanged(() => {
     void mountPanel(ctx, provider, anchor, new URL(location.href));
   });
 
-  if (!(await isSignedIn(provider))) return;
-  if (signal.aborted || !ctx.isValid) return;
-
-  const found = await anchor.waitForAnchor(signal);
-  if (signal.aborted || !ctx.isValid) return;
-  if (!found) {
-    console.warn('[amplified-stats] no sidebar anchor found, skipping mount');
-    return;
-  }
+  const found = await anchor.waitForAnchor(repo, signal);
+  if (!found || signal.aborted || !ctx.isValid) return;
 
   // Kept across attachments so re-pinning the panel reuses the same React root: a second
   // createRoot on the same container would orphan the first and lose the state of a run
@@ -91,7 +77,7 @@ export async function mountPanel(
     // Resolved as a function rather than a fixed element: the host's own framework
     // re-renders the sidebar while we are setting up, which detaches whatever element we
     // found earlier. A stale anchor has no parent, and insertion would silently do nothing.
-    anchor: () => anchor.findAnchor(),
+    anchor: () => anchor.findAnchor(repo),
     append: 'after',
     onMount(container) {
       root ??= ReactDOM.createRoot(container);
@@ -120,7 +106,7 @@ export async function mountPanel(
       anchoredTo.isConnected &&
       anchoredTo.nextElementSibling === ui.shadowHost,
     attach: () => {
-      if (!anchor.findAnchor()) return;
+      if (!anchor.findAnchor(repo)) return;
       try {
         ui.mount();
         anchoredTo = ui.shadowHost.previousElementSibling;
@@ -145,7 +131,7 @@ export async function mountPanel(
     // The host swaps the DOM for a client-side navigation before it updates the location,
     // so without this the re-attachment below would land the panel on whatever page is
     // now rendered.
-    if (!provider.isRepoHomePage(new URL(location.href))) {
+    if (!provider.parseRepoUrl(new URL(location.href))) {
       unmountPanel();
       return;
     }
@@ -156,15 +142,12 @@ export async function mountPanel(
 }
 
 export function unmountPanel() {
+  pendingMount?.abort();
+  pendingMount = null;
   stopTokenWatch?.();
   stopTokenWatch = null;
   sidebarObserver?.disconnect();
   sidebarObserver = null;
   active?.remove();
   active = null;
-}
-
-async function isSignedIn(provider: Provider): Promise<boolean> {
-  const response = await sendRequest<boolean>({ kind: 'signed-in', provider: provider.id });
-  return response.ok && response.data;
 }
