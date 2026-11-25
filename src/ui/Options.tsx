@@ -3,7 +3,7 @@ import { AuthError } from '../common';
 import type { Account, DeviceCode } from '../common';
 import { providerFor } from '../providers/registry';
 import { getToken, setToken } from '../logic/settings';
-import { sendRequest } from '../messaging/messages';
+import { sendRequest, type PanelStatus, type PanelStatusRequest } from '../messaging/messages';
 import { formatCount } from './format';
 
 /** The same settings rendered inside the toolbar popup, where space is a few hundred pixels. */
@@ -40,8 +40,50 @@ export function Options({ compact = false }: { compact?: boolean }) {
 
         {session.notice && <Note>{session.notice}</Note>}
         {session.error && <Note tone="error">{session.error}</Note>}
+        {compact && <PageCheck />}
       </main>
     </CompactContext>
+  );
+}
+
+const PAGE_CHECK: Record<PanelStatus, string> = {
+  visible: 'The Lines of code panel is under Languages.',
+  'mount-pending': 'Languages is present. Reload the GitHub tab to restart the panel.',
+  'sidebar-missing': 'The extension could not find the Languages section on this page.',
+  'not-repository': 'Open the Code tab of a GitHub repository.',
+};
+const PAGE_UNREACHABLE =
+  'Reload the GitHub tab and check that this extension has access to github.com.';
+
+function PageCheck() {
+  const [report, setReport] = useState<string | null>(null);
+
+  const check = async () => {
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id === undefined) {
+        setReport('Open the Code tab of a GitHub repository.');
+        return;
+      }
+      const request: PanelStatusRequest = { kind: 'panel-status' };
+      const status: PanelStatus | undefined = await browser.tabs.sendMessage(tab.id, request);
+      setReport((status && PAGE_CHECK[status]) ?? PAGE_UNREACHABLE);
+    } catch {
+      setReport(PAGE_UNREACHABLE);
+    }
+  };
+
+  return (
+    <>
+      <Row label="Current page">
+        <QuietButton onClick={() => void check()}>Check page</QuietButton>
+      </Row>
+      {report && (
+        <p role="status" className="text-xs text-[var(--page-muted)]">
+          {report}
+        </p>
+      )}
+    </>
   );
 }
 

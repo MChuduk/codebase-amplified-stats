@@ -17,10 +17,6 @@ import * as cache from '../src/logic/cache';
 import { claimCacheCleanup, getToken, setToken } from '../src/logic/settings';
 import type { CountableFile } from '../src/logic/interfaces';
 
-/**
- * Thrown before any request goes out when there is no token to make one with. Its message
- * never reaches the user: the panel does not mount for a signed-out one at all.
- */
 class NoTokenError extends Error {
   constructor() {
     super('Not signed in');
@@ -69,7 +65,7 @@ export default defineBackground(() => {
         }
       };
 
-      void analyze(start, send).catch((error: unknown) => {
+      void analyze(start, controller.signal, send).catch((error: unknown) => {
         const response = toErrorResponse(error, start.repo.provider);
         send({
           kind: 'error',
@@ -116,8 +112,8 @@ async function handle(request: Request): Promise<unknown> {
       return cache.cacheStats();
     case 'clear-cache':
       return cache.clearCache();
-    case 'signed-in':
-      return (await getToken(request.provider)) !== null;
+    case 'open-options':
+      return browser.runtime.openOptionsPage();
   }
 }
 
@@ -132,20 +128,25 @@ type Resolved = Awaited<ReturnType<typeof resolveUncached>>;
  */
 const RESOLVE_TTL_MS = 10 * 60 * 1000;
 const resolveCache = new Map<string, { at: number; value: Promise<Resolved> }>();
+const resolveKey = (repo: RepoRef) =>
+  `${repo.provider}:${repo.owner}/${repo.repo}@${repo.ref ?? ''}`;
 
-function resolve(repo: RepoRef): Promise<Resolved> {
-  const key = `${repo.owner}/${repo.repo}`;
+function resolve(repo: RepoRef, token: string): Promise<Resolved> {
+  const key = resolveKey(repo);
   const cached = resolveCache.get(key);
 
   if (cached && Date.now() - cached.at < RESOLVE_TTL_MS) return cached.value;
 
   // Stored as a promise so concurrent callers share one set of requests rather than
   // racing and each spending their own three.
-  const value = resolveUncached(repo);
-  resolveCache.set(key, { at: Date.now(), value });
+  const value = resolveUncached(repo, token);
+  const entry = { at: Date.now(), value };
+  resolveCache.set(key, entry);
 
   // A failed lookup must not be cached, or a transient error sticks for ten minutes.
-  value.catch(() => resolveCache.delete(key));
+  value.catch(() => {
+    if (resolveCache.get(key) === entry) resolveCache.delete(key);
+  });
 
   // Bound the map; this is a service worker that can live for a long time.
   if (resolveCache.size > 50) {
@@ -157,27 +158,30 @@ function resolve(repo: RepoRef): Promise<Resolved> {
 }
 
 /** Resolves a repository to a commit and the list of files worth counting. */
-async function resolveUncached(repo: RepoRef) {
+async function resolveUncached(repo: RepoRef, token: string) {
   const provider = providerFor(repo.provider);
-  const token = await requireToken(repo);
+  let branch = repo.ref;
+  let commitSha: string;
 
-  // `HEAD` resolves to the default branch's tip without first having to learn the branch
-  // name, so these two run together and the resolve costs two round trips instead of
-  // three. The ref spelling is not contractual, so a failure falls back to the explicit
-  // branch rather than failing the whole resolve.
-  const [info, headSha] = await Promise.all([
-    provider.fetchRepoInfo(repo, token),
-    provider.fetchCommitSha(repo, 'HEAD', token).catch(() => null),
-  ]);
+  if (branch) {
+    commitSha = await provider.fetchCommitSha(repo, branch, token);
+  } else {
+    // HEAD lets us look up the commit while the default branch name is still loading.
+    const [info, headSha] = await Promise.all([
+      provider.fetchRepoInfo(repo, token),
+      provider.fetchCommitSha(repo, 'HEAD', token).catch(() => null),
+    ]);
+    branch = info.defaultBranch;
+    commitSha = headSha ?? (await provider.fetchCommitSha(repo, branch, token));
+  }
 
-  const commitSha = headSha ?? (await provider.fetchCommitSha(repo, info.defaultBranch, token));
   const tree = await provider.fetchTree(repo, commitSha, token);
 
   const filtered = filterTree(tree.entries);
   const { files } = disambiguate(filtered.files);
 
   return {
-    branch: info.defaultBranch,
+    branch,
     commitSha,
     files,
     skippedByReason: filtered.skippedByReason,
@@ -190,7 +194,11 @@ async function resolveUncached(repo: RepoRef) {
  * whole-archive download that saves counting rather than bandwidth — except when a commit
  * turns out to be fully covered, in which case no archive is fetched at all.
  */
-async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void): Promise<void> {
+async function analyze(
+  start: AnalyzeStart,
+  signal: AbortSignal,
+  emit: (event: AnalyzeEvent) => void,
+): Promise<void> {
   const { repo } = start;
 
   // `resolve` may answer from its cache without ever touching storage, so read it here.
@@ -199,15 +207,16 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
   // "Refresh" must see new commits, so it bypasses the resolve cache too. It deliberately
   // leaves `blobStats` alone: a blob SHA is a hash of the file's contents, so a cached
   // count for one is correct by construction and re-downloading to redo it buys nothing.
-  if (start.force) resolveCache.delete(`${repo.owner}/${repo.repo}`);
+  if (start.force) resolveCache.delete(resolveKey(repo));
 
   emit({ kind: 'progress', phase: 'resolving', done: 0, total: 0 });
-  const resolved = await resolve(repo);
+  const resolved = await resolve(repo, token);
+  if (signal.aborted) return;
 
   if (!start.force) {
     const cached = await cache.getRepoRun(repo, resolved.commitSha);
     if (cached) {
-      emit({ kind: 'result', stats: cached, failures: 0 });
+      emit({ kind: 'result', stats: { ...cached, branch: resolved.branch }, failures: 0 });
       return;
     }
   }
@@ -217,6 +226,7 @@ async function analyze(start: AnalyzeStart, emit: (event: AnalyzeEvent) => void)
   // Reuse everything already counted, whatever commit or repository it came from —
   // including blobs previously found to be binary, which are worth nothing to re-count.
   const known = await cache.getBlobStats(resolved.files.map((file) => file.sha));
+  if (signal.aborted) return;
   const cachedResults: FileResult[] = [];
   const toDownload: CountableFile[] = [];
 

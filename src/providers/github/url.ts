@@ -41,29 +41,26 @@ const RESERVED_OWNERS = new Set([
   'watching',
 ]);
 
-/**
- * Sub-pages (`/tree/...`, `/issues`, ...) resolve to the repository too, so the panel
- * stays mounted while browsing around inside one.
- */
 export function parseRepoUrl(url: URL): RepoRef | null {
   if (url.hostname !== 'github.com') return null;
 
-  const segments = url.pathname.split('/').filter(Boolean);
-  if (segments.length < 2) return null;
-
-  const [owner, repo] = segments as [string, string];
-  if (RESERVED_OWNERS.has(owner.toLowerCase())) return null;
+  const [owner, repo, route, ...refPath] = url.pathname.split('/').filter(Boolean);
+  if (!owner || !repo || RESERVED_OWNERS.has(owner.toLowerCase())) return null;
 
   // `.git` suffixes and query strings never appear in real repo page URLs, but clean
   // them anyway so a hand-typed URL still works.
   const cleanRepo = repo.replace(/\.git$/, '');
   if (!cleanRepo) return null;
 
-  return { provider: 'github', owner, repo: cleanRepo };
-}
+  const target: RepoRef = { provider: 'github', owner, repo: cleanRepo };
+  if (!route) return target;
+  if (route !== 'tree' || refPath.length === 0) return null;
 
-/** True when the URL is the repository's landing page, where the sidebar lives. */
-export function isRepoHomePage(url: URL): boolean {
-  const segments = url.pathname.split('/').filter(Boolean);
-  return parseRepoUrl(url) !== null && segments.length === 2;
+  // A slash can belong to the ref or delimit a directory. The sidebar lookup checks
+  // the selected ref before mounting, once GitHub has rendered the target page.
+  try {
+    return { ...target, ref: decodeURIComponent(refPath.join('/')) };
+  } catch {
+    return null;
+  }
 }
