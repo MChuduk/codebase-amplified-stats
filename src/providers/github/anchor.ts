@@ -1,19 +1,10 @@
-/**
- * Finding where to inject the panel on a GitHub repository page.
- *
- * The panel goes directly under the sidebar's Languages block and nowhere else. Falling
- * back to some other spot when that block has not rendered yet is worse than waiting:
- * the panel appears in one place and then moves, which reads as a glitch. A repository
- * with no Languages block gets no panel.
- *
- * GitHub's markup is not a public API. It now ships Primer CSS modules whose class names
- * carry a build hash — `SidebarSection-module__sidebarSection__e8jFN` — so we match on the
- * stable prefix and never on the whole name. The older `.BorderGrid-row` markup is still
- * matched too, since GitHub Enterprise lags the public site by months.
- */
-
-/** The section wrapper of either markup generation, matched hash-free. */
-const SIDEBAR_SECTION = '[class*="SidebarSection-module__sidebarSection"], .BorderGrid-row';
+// GitHub serves several CSS-module naming formats, with the build hash on either side
+// of `sidebarSection`. The classic sidebar uses a plain class name.
+const SIDEBAR_SECTION = [
+  '[class*="sidebarSection__"]',
+  '[class*="SidebarSection-module_"][class*="_sidebarSection"]',
+  '.BorderGrid-row',
+].join(', ');
 
 function enclosingSection(element: Element): Element | null {
   return element.closest(SIDEBAR_SECTION);
